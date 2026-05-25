@@ -1,0 +1,190 @@
+//! Filesystem layout of an outl workspace.
+//!
+//! A workspace is a directory containing four subtrees:
+//!
+//! - `.outl/`     — SQLite log, config, peers, orphan log.
+//! - `pages/`     — user-named `.md` files (clean markdown).
+//! - `journals/`  — daily-note `.md` files keyed by date.
+//! - `templates/` — optional `.md` templates (e.g. `journal.md`).
+//!
+//! This module exposes helpers for constructing those paths and the
+//! workspace config file.
+
+use anyhow::{Context, Result};
+use chrono::{DateTime, FixedOffset, Local, NaiveDate};
+use outl_core::id::ActorId;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// On-disk workspace config (`<root>/.outl/config.toml`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    /// Workspace metadata.
+    pub workspace: WorkspaceConfig,
+}
+
+/// Workspace-level configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceConfig {
+    /// This device's actor id. Persisted so HLCs stay coherent across runs.
+    pub actor_id: String,
+    /// When the workspace was initialized.
+    pub created_at: DateTime<FixedOffset>,
+}
+
+impl Config {
+    /// Build a fresh config with a new actor id.
+    pub fn fresh() -> Self {
+        Self {
+            workspace: WorkspaceConfig {
+                actor_id: ActorId::new().0.to_string(),
+                created_at: Local::now().fixed_offset(),
+            },
+        }
+    }
+
+    /// Parse the actor id from the config string into a typed [`ActorId`].
+    pub fn actor(&self) -> Result<ActorId> {
+        let u = ulid::Ulid::from_string(&self.workspace.actor_id)
+            .with_context(|| "actor_id in config.toml is not a valid ULID")?;
+        Ok(ActorId(u))
+    }
+}
+
+/// Paths inside a workspace, derived from its root.
+#[derive(Debug, Clone)]
+pub struct Paths {
+    /// Workspace root.
+    pub root: PathBuf,
+    /// `.outl/` directory.
+    pub dot_outl: PathBuf,
+    /// `pages/` directory.
+    pub pages: PathBuf,
+    /// `journals/` directory.
+    pub journals: PathBuf,
+    /// `templates/` directory.
+    pub templates: PathBuf,
+    /// `.outl/log.db`.
+    pub db: PathBuf,
+    /// `.outl/config.toml`.
+    pub config: PathBuf,
+    /// `.outl/orphans.log`.
+    pub orphans: PathBuf,
+    /// `.outl/peers.toml` (phase 2+ peer registry).
+    pub peers: PathBuf,
+    /// `templates/journal.md`.
+    pub journal_template: PathBuf,
+}
+
+impl Paths {
+    /// Build paths from a workspace root.
+    pub fn at(root: impl Into<PathBuf>) -> Self {
+        let root = root.into();
+        let dot_outl = root.join(".outl");
+        Self {
+            db: dot_outl.join("log.db"),
+            config: dot_outl.join("config.toml"),
+            orphans: dot_outl.join("orphans.log"),
+            peers: dot_outl.join("peers.toml"),
+            pages: root.join("pages"),
+            journals: root.join("journals"),
+            journal_template: root.join("templates").join("journal.md"),
+            templates: root.join("templates"),
+            dot_outl,
+            root,
+        }
+    }
+
+    /// Path for a given page name (no `.md` suffix expected from caller).
+    ///
+    /// Used by `outl-tui` (Step 5) and not yet referenced from the CLI
+    /// itself, hence the explicit allow.
+    #[allow(dead_code)]
+    pub fn page_md(&self, name: &str) -> PathBuf {
+        self.pages.join(format!("{name}.md"))
+    }
+
+    /// Path for a journal of a given date.
+    pub fn journal_md(&self, date: NaiveDate) -> PathBuf {
+        self.journals
+            .join(format!("{}.md", date.format("%Y-%m-%d")))
+    }
+}
+
+/// Create every directory and write the seed files for a fresh workspace.
+///
+/// Idempotent up to the config file: if `config.toml` already exists, the
+/// caller's existing config is preserved.
+pub fn init(paths: &Paths) -> Result<()> {
+    for dir in [
+        &paths.root,
+        &paths.dot_outl,
+        &paths.pages,
+        &paths.journals,
+        &paths.templates,
+    ] {
+        fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+
+    if !paths.config.exists() {
+        let cfg = Config::fresh();
+        write_config(paths, &cfg)?;
+    }
+
+    if !paths.journal_template.exists() {
+        fs::write(&paths.journal_template, "# {{date}}\n\n- \n")
+            .with_context(|| format!("writing {}", paths.journal_template.display()))?;
+    }
+
+    // Touch orphan log so `doctor` can rely on it existing.
+    if !paths.orphans.exists() {
+        fs::write(&paths.orphans, "")
+            .with_context(|| format!("writing {}", paths.orphans.display()))?;
+    }
+
+    // Empty peers.toml is fine for phase 1.
+    if !paths.peers.exists() {
+        fs::write(&paths.peers, "# Sync peers go here in phase 2+\n")
+            .with_context(|| format!("writing {}", paths.peers.display()))?;
+    }
+
+    Ok(())
+}
+
+/// Read the workspace config.
+pub fn read_config(paths: &Paths) -> Result<Config> {
+    let s = fs::read_to_string(&paths.config)
+        .with_context(|| format!("reading {}", paths.config.display()))?;
+    let cfg: Config = toml::from_str(&s).with_context(|| "parsing config.toml")?;
+    Ok(cfg)
+}
+
+/// Write the workspace config.
+pub fn write_config(paths: &Paths, cfg: &Config) -> Result<()> {
+    let s = toml::to_string_pretty(cfg).with_context(|| "serializing config.toml")?;
+    fs::write(&paths.config, s).with_context(|| format!("writing {}", paths.config.display()))?;
+    Ok(())
+}
+
+/// Today's date in the local timezone, as a `NaiveDate`.
+pub fn today() -> NaiveDate {
+    Local::now().date_naive()
+}
+
+/// Whether `path` looks like an outl-managed `.md` file (under pages/ or
+/// journals/). Sidecars (`.foo.outl`) and template files are excluded.
+pub fn is_workspace_md(paths: &Paths, path: &Path) -> bool {
+    let Some(ext) = path.extension() else {
+        return false;
+    };
+    if ext != "md" {
+        return false;
+    }
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if name.starts_with('.') {
+            return false;
+        }
+    }
+    path.starts_with(&paths.pages) || path.starts_with(&paths.journals)
+}
