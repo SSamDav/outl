@@ -4,16 +4,16 @@
 //! all merge into the same type at link time. We use that to split the
 //! ~1.4k LOC of behaviour into single-purpose files:
 //!
-//! - [`lifecycle`] — load / save / external-edit polling / `App::new`
-//! - [`nav`] — page/journal jumps, cursor inside a block, selection
+//! - `lifecycle` — load / save / external-edit polling / `App::new`
+//! - `nav` — page/journal jumps, cursor inside a block, selection
 //!   between blocks, opening `[[refs]]`
-//! - [`block`] — Insert mode, create / indent / outdent / delete /
+//! - `block` — Insert mode, create / indent / outdent / delete /
 //!   move block, TODO cycle
-//! - [`history`] — undo / redo snapshots
-//! - [`visual`] — Visual mode + its delete / indent / outdent
-//! - [`yank`] — yank register, paste after / before
-//! - [`exec`] — run code block under cursor via `outl_exec`
-//! - [`overlay`] — quick switcher, workspace search, command palette,
+//! - `history` — undo / redo snapshots
+//! - `visual` — Visual mode + its delete / indent / outdent
+//! - `yank` — yank register, paste after / before
+//! - `exec` — run code block under cursor via `outl_exec`
+//! - `overlay` — quick switcher, workspace search, command palette,
 //!   inline `[[`/`#` autocomplete
 //!
 //! Anything cross-cutting (constructors, `pub(crate)` free helpers

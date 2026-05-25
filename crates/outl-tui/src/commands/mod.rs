@@ -2,14 +2,14 @@
 //!
 //! Both the slash menu (`/`) and the vim command palette (`:`) hit
 //! the **same** registry. Plugins will eventually register through
-//! [`CommandRegistry::register`] and immediately show up in both
+//! `CommandRegistry::register` and immediately show up in both
 //! surfaces — there's no second list to keep in sync.
 //!
 //! The shape mirrors [`outl_exec::RuntimeRegistry`]:
 //!
-//! - [`SlashCommand`] is the trait every command implements.
-//! - [`CommandRegistry`] is the lookup; built-ins go in via
-//!   [`CommandRegistry::with_builtins`].
+//! - `SlashCommand` is the trait every command implements.
+//! - `CommandRegistry` is the lookup; built-ins go in via
+//!   `CommandRegistry::with_builtins`.
 //! - [`builtins`] holds the shipped commands. Each one is its own
 //!   small struct under ~50 lines.
 

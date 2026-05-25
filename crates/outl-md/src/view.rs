@@ -1,4 +1,4 @@
-//! UI-agnostic block layout — decomposes an [`OutlineNode`]'s text
+//! UI-agnostic block layout — decomposes an [`crate::parse::OutlineNode`]'s text
 //! into a sequence of "visual rows" that the TUI, future Tauri GUI,
 //! and mobile clients all consume.
 //!

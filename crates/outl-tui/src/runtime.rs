@@ -3,7 +3,7 @@
 //! running interactive program.
 //!
 //! State definitions live in [`crate::state`]; everything that touches
-//! the [`App`] in response to a key event lives in [`crate::input`]; the
+//! the `App` in response to a key event lives in [`crate::input`]; the
 //! draw side lives in [`crate::view`].
 
 use crate::input::{handle_insert_key, handle_normal_key, handle_overlay_key, handle_visual_key};

@@ -6,8 +6,8 @@
 //! specification and the invariants this crate must preserve.
 //!
 //! The four functions whose correctness underpins the entire project are
-//! [`tree::do_op`], [`tree::undo_op`], [`tree::apply_op`], and
-//! [`tree::creates_cycle`]. Each has a coverage requirement of 100%.
+//! [`tree::Tree::do_op`], [`tree::Tree::undo_op`], [`tree::Tree::apply_op`], and
+//! [`tree::Tree::creates_cycle`]. Each has a coverage requirement of 100%.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

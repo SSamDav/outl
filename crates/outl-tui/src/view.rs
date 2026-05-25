@@ -1,4 +1,4 @@
-//! ratatui rendering: turn the current [`App`] into a frame.
+//! ratatui rendering: turn the current `App` into a frame.
 //!
 //! This is the *only* place in the crate that produces `ratatui::Line`
 //! and `Span` values. Anything else (state, actions, key handling) is

@@ -17,7 +17,7 @@
 //!   today don't.
 //! - [`result_block`] — pure functions that find / create the result
 //!   subblock under a code block. No I/O.
-//! - [`orchestrate::run_block_at_path`] — single entry point for every
+//! - [`orchestrate::run_block_at_index`] — single entry point for every
 //!   UI (TUI, future Tauri GUI, future mobile via uniffi). Takes a
 //!   workspace + page path + block flat-index, runs, persists,
 //!   reconciles.

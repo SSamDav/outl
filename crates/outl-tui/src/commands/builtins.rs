@@ -5,8 +5,8 @@
 
 //! Built-in slash / palette commands.
 //!
-//! Each command is a small struct implementing [`SlashCommand`].
-//! Adding a new one is ~20 lines + one call in [`register_all`].
+//! Each command is a small struct implementing `SlashCommand`.
+//! Adding a new one is ~20 lines + one call in `register_all`.
 //!
 //! Convention:
 //!

@@ -3,7 +3,7 @@
 //! Built-in runtimes are registered via [`RuntimeRegistry::default`].
 //! Hosts can layer more at startup with [`RuntimeRegistry::register`],
 //! or discover drop-in `.wasm` modules with
-//! [`RuntimeRegistry::discover_wasm_dir`] (M2 — see TODO inside).
+//! `RuntimeRegistry::discover_wasm_dir` (M2 — see TODO inside).
 
 use std::collections::HashMap;
 use std::sync::Arc;

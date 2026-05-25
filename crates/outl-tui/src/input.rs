@@ -1,10 +1,10 @@
 //! Key-event routing: turn a [`crossterm::event::KeyEvent`] into a
-//! method call on [`crate::state::App`].
+//! method call on `crate::state::App`.
 //!
 //! Every function here is a `handle_*_key`: they pattern-match a key,
 //! decide which action to invoke, and return. They never render; they
 //! never read or write files directly; they delegate everything to
-//! methods on [`App`] (defined in [`crate::actions`]).
+//! methods on `App` (defined in [`crate::actions`]).
 //!
 //! Keymap *documentation* (the table users care about) lives in
 //! [`crate::keymap`].
