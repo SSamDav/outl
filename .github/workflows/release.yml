@@ -4,8 +4,8 @@ name: Release
 #
 # - Tag:     `v<workspace.version>-beta.<run_number>` (e.g. `v0.1.0-beta.42`).
 # - Binary:  reports the full beta version (workflow patches Cargo.toml
-#            in-place before `cargo build` via `cargo set-version`; the
-#            change never lands in the repo).
+#            in-place with `sed` before `cargo build`; the change never
+#            lands in the repo).
 # - GitHub:  published as a prerelease with auto-generated release notes
 #            (commits since the previous tag).
 #
@@ -35,6 +35,7 @@ jobs:
     name: Compute version
     runs-on: ubuntu-latest
     outputs:
+      base: ${{ steps.compute.outputs.base }}
       version: ${{ steps.compute.outputs.version }}
       tag: ${{ steps.compute.outputs.tag }}
       prerelease: ${{ steps.compute.outputs.prerelease }}
@@ -45,6 +46,8 @@ jobs:
       - id: compute
         shell: bash
         run: |
+          BASE=$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)
+
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             # Manual GA tag: trust the tag verbatim.
             TAG="${GITHUB_REF#refs/tags/}"
@@ -52,7 +55,6 @@ jobs:
             CREATE_TAG="false"
           else
             # Auto beta from main push (or workflow_dispatch).
-            BASE=$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)
             VERSION="${BASE}-beta.${{ github.run_number }}"
             TAG="v${VERSION}"
             CREATE_TAG="true"
@@ -65,6 +67,7 @@ jobs:
             PRERELEASE="false"
           fi
 
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
@@ -84,10 +87,15 @@ jobs:
 
       - name: Push tag
         run: |
+          TAG='${{ needs.prepare.outputs.tag }}'
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+            echo "::notice::Tag ${TAG} already exists on origin; skipping create."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "${{ needs.prepare.outputs.tag }}"
-          git push origin "${{ needs.prepare.outputs.tag }}"
+          git tag "${TAG}"
+          git push origin "${TAG}"
 
   build:
     name: build ${{ matrix.target }}
@@ -122,14 +130,22 @@ jobs:
           rustup show
           rustup target add ${{ matrix.target }}
 
-      - name: Install cargo-edit
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-edit
-
-      - name: Patch workspace to ${{ needs.prepare.outputs.version }}
+      - name: Patch workspace version to ${{ needs.prepare.outputs.version }}
         shell: bash
-        run: cargo set-version --workspace "${{ needs.prepare.outputs.version }}"
+        # `cargo set-version` refuses pre-release "downgrades"
+        # (0.1.0 -> 0.1.0-beta.42 is semver-less, even though we want
+        # the binary to advertise the beta). Doing it with sed is both
+        # simpler and bypasses that check. We rewrite every literal
+        # `version = "<base>"` in the root manifest — that covers
+        # `workspace.package.version` plus the path-dep version pins
+        # in `workspace.dependencies`. Crate manifests use
+        # `version.workspace = true` and don't need patching.
+        run: |
+          BASE='${{ needs.prepare.outputs.base }}'
+          VERSION='${{ needs.prepare.outputs.version }}'
+          sed -i.bak "s|version = \"${BASE}\"|version = \"${VERSION}\"|g" Cargo.toml
+          rm Cargo.toml.bak
+          grep -n "version" Cargo.toml | head -10
 
       - name: Cache cargo
         uses: actions/cache@v4
