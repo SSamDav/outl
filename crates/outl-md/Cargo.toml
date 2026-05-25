@@ -1,0 +1,42 @@
+[package]
+name = "outl-md"
+description = "Markdown parsing, sidecar handling, and 3-level matching for outl."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+outl-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+comrak = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+outl-core = { workspace = true }
+criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
+
+[[bench]]
+name = "index"
+harness = false
+path = "benches/index.rs"
+
+[[bench]]
+name = "parse"
+harness = false
+path = "benches/parse.rs"
