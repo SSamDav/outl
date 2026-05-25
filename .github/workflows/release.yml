@@ -27,7 +27,11 @@ permissions:
 
 concurrency:
   # Only one release job per ref. New push cancels the in-flight one.
-  group: release-${{ github.ref }}
+  # Bumped suffix to escape a stuck queued macos-13 job in the `v1`
+  # group that GitHub couldn't cancel (job never got assigned to a
+  # runner, so there was no process to terminate). If we hit that
+  # again, bump the suffix.
+  group: release-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
