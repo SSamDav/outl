@@ -1,0 +1,41 @@
+# Cargo build artifacts
+/target
+**/target
+debug
+
+# Backups from rustfmt
+**/*.rs.bk
+
+# MSVC Windows builds
+*.pdb
+
+# cargo-mutants
+**/mutants.out*/
+
+# cargo-llvm-cov / tarpaulin
+/coverage
+*.profraw
+lcov.info
+
+# JetBrains / VS Code
+.idea/
+.vscode/
+*.iml
+
+# macOS
+.DS_Store
+
+# Local outl workspace for dev/test
+/playground/
+/.outl-test/
+/.outl/
+/lerolero/
+
+# Generated SQLite WAL files (when testing)
+*.db-wal
+*.db-shm
+
+note-example/
+
+# Criterion bench artefacts (regenerated on every run, large)
+**/criterion/
