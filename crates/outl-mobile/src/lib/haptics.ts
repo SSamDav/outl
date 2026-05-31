@@ -15,13 +15,11 @@ const PATTERNS: Record<HapticStyle, number[]> = {
   warning: [20, 40, 20],
 };
 
-interface VibratingNavigator extends Navigator {
-  vibrate?: (pattern: number[]) => boolean;
-}
+type VibrateFn = (pattern: number | number[]) => boolean;
 
 export function haptic(style: HapticStyle = "light") {
   if (typeof navigator === "undefined") return;
-  const v = (navigator as VibratingNavigator).vibrate;
+  const v = (navigator as Navigator & { vibrate?: VibrateFn }).vibrate;
   if (typeof v !== "function") return;
   try {
     v.call(navigator, PATTERNS[style]);

@@ -65,6 +65,39 @@ export function autoClosePair(
 }
 
 /**
+ * Inverse of [`autoClosePair`]: when the caret sits in the empty
+ * middle of `[[]]` or `(())` and the user presses Backspace, delete
+ * the whole pair in one shot so they don't have to mash backspace
+ * four times to undo an aborted ref. Returns `null` when the caret
+ * isn't between an empty pair — let the default backspace through.
+ *
+ * Only fires for *empty* pairs (`[[]]`, `(())`). The moment the user
+ * has typed something in the middle (`[[ave]]`), backspace goes
+ * back to deleting one char at a time so they can fix typos.
+ */
+export function autoDeletePair(
+  value: string,
+  selection: number,
+): PairCompletion | null {
+  if (selection < 2) return null;
+  const left = value.slice(selection - 2, selection);
+  const right = value.slice(selection, selection + 2);
+  if (left === "[[" && right === "]]") {
+    return {
+      value: value.slice(0, selection - 2) + value.slice(selection + 2),
+      caret: selection - 2,
+    };
+  }
+  if (left === "((" && right === "))") {
+    return {
+      value: value.slice(0, selection - 2) + value.slice(selection + 2),
+      caret: selection - 2,
+    };
+  }
+  return null;
+}
+
+/**
  * Insert `open + close` at `selection`, returning the new value and
  * the caret position *between* them. Used by toolbar buttons that
  * pre-seed a delimiter pair (`[[`, `((`).

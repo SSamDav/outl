@@ -5,6 +5,7 @@ import {
   findBlock,
   findInsertedAfter,
   flatten,
+  rawTextWithTodo,
 } from "./outline";
 
 function block(id: string, text = "", children: BlockNode[] = []): BlockNode {
@@ -66,6 +67,22 @@ describe("findInsertedAfter", () => {
   it("crosses subtree boundaries", () => {
     const tree = [block("a", "", [block("a1")]), block("b")];
     expect(findInsertedAfter(tree, "a1")?.id).toBe("b");
+  });
+});
+
+describe("rawTextWithTodo", () => {
+  it("returns text verbatim when there is no TODO state", () => {
+    expect(rawTextWithTodo(block("a", "ship it"))).toBe("ship it");
+  });
+
+  it("reattaches TODO prefix", () => {
+    const b: BlockNode = { id: "x", text: "ship it", todo: "TODO", children: [] };
+    expect(rawTextWithTodo(b)).toBe("TODO ship it");
+  });
+
+  it("reattaches DONE prefix", () => {
+    const b: BlockNode = { id: "x", text: "ship it", todo: "DONE", children: [] };
+    expect(rawTextWithTodo(b)).toBe("DONE ship it");
   });
 });
 

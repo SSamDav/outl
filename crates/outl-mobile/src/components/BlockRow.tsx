@@ -1,15 +1,24 @@
 import { For, JSX, Show, onCleanup, onMount } from "solid-js";
 import { BlockNode } from "../lib/api";
 import { MarkdownInline } from "../lib/markdown";
-import { autoClosePair } from "../lib/autocomplete";
+import { autoClosePair, autoDeletePair } from "../lib/autocomplete";
 import { haptic } from "../lib/haptics";
+import { rawTextWithTodo } from "../lib/outline";
+import { parkCaret } from "../lib/textarea";
 import { SwipeRow } from "./SwipeRow";
 
 interface BlockRowProps {
   block: BlockNode;
   depth: number;
   editingId: string | null;
-  draftText: string;
+  /**
+   * Lazy accessor for the draft signal. Receiving a getter instead
+   * of `string` means only the block that's *actually* in edit
+   * subscribes to `draft()` changes — the other 199 rows in a
+   * 200-block outline ignore each keystroke. Without this, typing
+   * one character re-runs a reactive effect in every BlockRow.
+   */
+  draftText: () => string;
   onStartEdit: (id: string, initialText: string) => void;
   onDraftChange: (text: string) => void;
   onCommitEdit: () => void;
@@ -48,7 +57,7 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
           draftText={props.draftText}
           depth={props.depth}
           onStartEdit={() =>
-            props.onStartEdit(props.block.id, props.block.text)
+            props.onStartEdit(props.block.id, rawTextWithTodo(props.block))
           }
           onDraftChange={props.onDraftChange}
           onCommitEdit={props.onCommitEdit}
@@ -57,7 +66,12 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
             props.onToggleTodo(props.block.id);
           }}
           onLongPress={() => {
-            haptic("medium");
+            // Distinct haptic so the user can tell something happened
+            // even when they're not looking at the checkbox: "success"
+            // (3-pulse) when we're about to *create* a TODO on a plain
+            // block, plain "medium" when we're cycling an existing
+            // TODO ↔ DONE ↔ none.
+            haptic(props.block.todo === null ? "success" : "medium");
             props.onToggleTodo(props.block.id);
           }}
           onRefClick={props.onRefClick}
@@ -104,7 +118,9 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
 function BlockBody(props: {
   block: BlockNode;
   editing: boolean;
-  draftText: string;
+  /** Lazy accessor — only read inside the edit-mode branch so non-
+   *  editing rows don't subscribe to `draft()`. */
+  draftText: () => string;
   depth: number;
   onStartEdit: () => void;
   onDraftChange: (text: string) => void;
@@ -120,8 +136,24 @@ function BlockBody(props: {
   let downY = 0;
   let didLongPress = false;
 
+  /**
+   * True when the gesture started inside an interactive child — a
+   * page ref (`[[…]]`), tag (`#…`), inline code, link, or any
+   * `button`/`[role=button]`. Those need to handle their own taps;
+   * we bail before arming the long-press timer or starting an edit
+   * so the user actually navigates to the ref instead of opening
+   * the textarea on top of it.
+   */
+  function pressedInteractive(e: PointerEvent): boolean {
+    const target = e.target as HTMLElement | null;
+    return !!target?.closest(
+      "a,button,[role='button'],code,textarea,input",
+    );
+  }
+
   function onPointerDown(e: PointerEvent) {
     if (props.editing) return;
+    if (pressedInteractive(e)) return;
     downX = e.clientX;
     downY = e.clientY;
     didLongPress = false;
@@ -146,9 +178,18 @@ function BlockBody(props: {
       longPressTimer = undefined;
     }
   }
-  function onClick() {
+  function onClick(e: MouseEvent) {
     if (didLongPress) {
       didLongPress = false;
+      return;
+    }
+    // A tap that landed inside an interactive child has already been
+    // handled by that child (`stopPropagation` on the ref/tag span,
+    // the checkbox button, etc). Don't fall through into "start
+    // edit" — that's how tap-on-ref kept opening the editor.
+    if ((e.target as HTMLElement | null)?.closest(
+      "a,button,[role='button'],code,textarea,input",
+    )) {
       return;
     }
     if (!props.editing) props.onStartEdit();
@@ -171,7 +212,7 @@ function BlockBody(props: {
       onClick={onClick}
     >
       <BulletOrCheckbox
-        todo={props.block.todo}
+        todo={props.editing ? null : props.block.todo}
         onToggle={() => {
           props.onToggleTodo();
         }}
@@ -206,7 +247,7 @@ function BlockBody(props: {
           }
         >
           <EditableTextarea
-            value={props.draftText}
+            value={props.draftText()}
             onInput={props.onDraftChange}
             onBlur={props.onCommitEdit}
             onMount={props.onTextareaMount}
@@ -221,14 +262,28 @@ function BulletOrCheckbox(props: {
   todo: BlockNode["todo"];
   onToggle: () => void;
 }) {
+  // Apple HIG: minimum tap target is 44×44. We hit ~36×30 here so we
+  // stay visually compact in dense outlines but no longer demand
+  // pixel-perfect taps. The visual dot/checkbox keeps its old size
+  // — the surrounding `<button>` is what grows.
   return (
     <Show
       when={props.todo !== null}
       fallback={
-        <span
-          aria-hidden="true"
-          class="relative z-10 mt-[12px] h-1 w-1 shrink-0 rounded-full bg-(--color-ios-text-tertiary) dark:bg-(--color-iosd-text-tertiary)"
-        />
+        <button
+          type="button"
+          aria-label="Mark as TODO"
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onToggle();
+          }}
+          class="group/bullet relative z-10 -my-1.5 -ml-2 flex h-[30px] w-[26px] shrink-0 items-center justify-center"
+        >
+          <span
+            aria-hidden="true"
+            class="h-1.5 w-1.5 rounded-full bg-(--color-ios-text-tertiary) transition-transform group-active/bullet:scale-150 dark:bg-(--color-iosd-text-tertiary)"
+          />
+        </button>
       }
     >
       <button
@@ -238,29 +293,33 @@ function BulletOrCheckbox(props: {
           e.stopPropagation();
           props.onToggle();
         }}
-        class="relative z-10 mt-[3px] flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px]"
-        classList={{
-          "border-(--color-ios-accent) bg-(--color-ios-accent) dark:border-(--color-iosd-accent) dark:bg-(--color-iosd-accent)":
-            props.todo === "DONE",
-          "border-(--color-ios-text-secondary) bg-transparent dark:border-(--color-iosd-text-secondary)":
-            props.todo !== "DONE",
-        }}
+        class="relative z-10 -my-1.5 -ml-1 flex h-[30px] w-[30px] shrink-0 items-center justify-center"
       >
-        <Show when={props.todo === "DONE"}>
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            stroke-width="3.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M5 12l4 4 10-10" />
-          </svg>
-        </Show>
+        <span
+          class="flex h-[20px] w-[20px] items-center justify-center rounded-full border-[1.5px] transition-colors"
+          classList={{
+            "border-(--color-ios-accent) bg-(--color-ios-accent) dark:border-(--color-iosd-accent) dark:bg-(--color-iosd-accent)":
+              props.todo === "DONE",
+            "border-(--color-ios-text-secondary) bg-transparent dark:border-(--color-iosd-text-secondary)":
+              props.todo !== "DONE",
+          }}
+        >
+          <Show when={props.todo === "DONE"}>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              stroke-width="3.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M5 12l4 4 10-10" />
+            </svg>
+          </Show>
+        </span>
       </button>
     </Show>
   );
@@ -273,12 +332,26 @@ function EditableTextarea(props: {
   onMount?: (el: HTMLTextAreaElement) => void;
 }) {
   let ref!: HTMLTextAreaElement;
+  let resizeRaf = 0;
 
+  // Reading `ref.scrollHeight` after writing `ref.style.height` forces
+  // a synchronous layout. Doing that on every keystroke makes typing
+  // feel sluggish on long pages — coalescing into a single
+  // requestAnimationFrame keeps the work to once per frame.
   function autoResize() {
     if (!ref) return;
-    ref.style.height = "auto";
-    ref.style.height = `${ref.scrollHeight}px`;
+    if (resizeRaf) return;
+    resizeRaf = window.requestAnimationFrame(() => {
+      resizeRaf = 0;
+      if (!ref) return;
+      ref.style.height = "auto";
+      ref.style.height = `${ref.scrollHeight}px`;
+    });
   }
+
+  onCleanup(() => {
+    if (resizeRaf) window.cancelAnimationFrame(resizeRaf);
+  });
 
   onMount(() => {
     autoResize();
@@ -295,21 +368,53 @@ function EditableTextarea(props: {
       class="block w-full resize-none border-0 bg-transparent p-0 text-[17px] leading-snug outline-none"
       rows="1"
       value={props.value}
+      // iOS Smart Punctuation silently rewrites `--` → `–`,
+      // `...` → `…`, `"foo"` → `“foo”`. Disastrous for a markdown
+      // outliner where code snippets, CLI commands and any
+      // syntax-sensitive text gets corrupted *after* the user
+      // typed. We turn the lot off here. `autocomplete="off"` is
+      // belt-and-braces — WKWebView mostly ignores it on textareas
+      // but it does suppress the proactive suggestion bar in some
+      // iOS versions.
+      autocorrect="off"
+      autocapitalize="off"
+      autocomplete="off"
+      spellcheck={false}
+      onKeyDown={(e) => {
+        // Backspace inside an empty `[[]]` or `(())` deletes the
+        // whole pair so the user doesn't have to mash four times.
+        // We do this in keydown (not input) so we can `preventDefault`
+        // before the browser eats the lone `[` to the left of caret.
+        if (e.key !== "Backspace") return;
+        const ta = e.currentTarget;
+        if (ta.selectionStart !== ta.selectionEnd) return; // user is deleting a selection
+        const caret = ta.selectionStart ?? 0;
+        const completion = autoDeletePair(ta.value, caret);
+        if (!completion) return;
+        e.preventDefault();
+        // `ta.value = …` resets the caret to the end of the text in
+        // iOS WKWebView. `parkCaret` (called twice — once before and
+        // once after `props.onInput` triggers Solid's `value=`
+        // re-binding) keeps the caret where we asked.
+        ta.value = completion.value;
+        parkCaret(ta, completion.caret);
+        props.onInput(completion.value);
+        parkCaret(ta, completion.caret);
+        autoResize();
+      }}
       onInput={(e) => {
         const ta = e.currentTarget;
         const caret = ta.selectionStart ?? ta.value.length;
         const completion = autoClosePair(ta.value, caret);
         if (completion) {
-          // Insert closer + re-park caret synchronously so iOS keeps
-          // the keyboard up. We must mutate the DOM *and* the Solid
-          // signal in the same tick.
+          // Same caret-reset trap as Backspace above. The user just
+          // typed the second `[` (or `(`) and we appended the
+          // matching closer; without parkCaret the cursor lands at
+          // the end (`[[]]_`) instead of the middle (`[[_]]`).
           ta.value = completion.value;
-          try {
-            ta.setSelectionRange(completion.caret, completion.caret);
-          } catch {
-            // ignore — happens if the element is momentarily blurred
-          }
+          parkCaret(ta, completion.caret);
           props.onInput(completion.value);
+          parkCaret(ta, completion.caret);
         } else {
           props.onInput(ta.value);
         }

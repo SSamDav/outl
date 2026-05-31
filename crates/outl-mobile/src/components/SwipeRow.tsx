@@ -37,12 +37,18 @@ export function SwipeRow(props: SwipeRowProps): JSX.Element {
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
     if (!captured) {
-      // Decide gesture: only horizontal moves of >8px capture, so
-      // tap and vertical scroll still work.
-      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      // Decide gesture: only **leftward** horizontal moves of >8px
+      // capture, since swipe-to-delete is left-only. This lets
+      // rightward swipes pass through to the parent SwipeNavigator
+      // — which is what handles previous-day on a left-edge swipe —
+      // and stops us from grabbing the pointer for a gesture we
+      // would have ignored anyway.
+      if (dx < -8 && Math.abs(dx) > Math.abs(dy) * 1.5) {
         captured = true;
         (e.target as Element).setPointerCapture?.(e.pointerId);
-      } else if (Math.abs(dy) > 10) {
+      } else if (Math.abs(dy) > 10 || dx > 8) {
+        // Vertical scroll, or rightward drag (page-nav territory)
+        // — back off completely so we don't half-steal the gesture.
         active = false;
         return;
       } else {

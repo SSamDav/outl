@@ -4,6 +4,85 @@ All notable changes to outl are documented here. Format inspired by
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] — 2026-05-31
+
+Mobile UX polish + autocomplete fixes. No protocol or storage
+changes — drop-in upgrade from 0.3.0.
+
+### Mobile (`outl-mobile`)
+
+- **Autocomplete (`[[…]]`) now actually fires on iOS.** The native
+  ref suggester chip strip was orphaned — `createEffect` was being
+  registered after an `await` inside `onMount`, which lost Solid's
+  reactive owner. State was published once at boot and never
+  updated as the user typed.
+- **TODO/DONE prefix is visible (and editable) in Insert mode.**
+  Tapping a TODO block used to show only the checkbox + body
+  (`ship it`) with the `TODO ` prefix hidden, so erasing the
+  prefix from the editor was impossible. Now the prefix appears in
+  the textarea (`TODO ship it`) and the checkbox flips to a bullet
+  while editing — toggling state via the text Just Works.
+- **Cursor lands inside `[[ ]]` / `(( ))` reliably.** `el.value =
+  …` resets the textarea caret in iOS WKWebView; combined with
+  Solid's `value={draft()}` rebinding the caret could end up
+  outside the pair. Replaced with `setRangeText` + double
+  `parkCaret` (sync + microtask) so every toolbar insert, paste
+  completion, and suggester pick parks the caret where the user
+  expects it.
+- **Backspace inside empty `[[]]` / `(())` collapses the pair.**
+  No more mashing backspace four times to undo an aborted ref.
+  Same rule on TUI and mobile.
+- **Smart Punctuation is OFF.** `--` no longer becomes `–`, `...`
+  no longer becomes `…`, quotes stay straight. Code snippets and
+  CLI commands in journals survive intact.
+- **Toast pattern for errors** (auto-dismiss + Retry button) in
+  place of the persistent red `<p>` that sat in the middle of the
+  outline forever. Failed saves now offer a one-tap retry without
+  losing the draft.
+- **`commitInFlight` lock + 8 s timeout** serializes concurrent
+  block edits (typing → TODO toggle → blur) so the older save
+  never overwrites the newer, and a stuck Tauri command can't
+  freeze Insert mode indefinitely.
+- **Progressive loading message** ("Loading…" → "Connecting to
+  iCloud…" → "Still waiting on iCloud…") + spinner + a Retry
+  button on terminal failure. iCloud cold-start no longer reads as
+  "the app froze".
+- **Connectivity-aware SyncDot** uses `navigator.onLine` +
+  `online`/`offline` listeners to actually show the offline pip
+  (was dead code before). `aria-label` instead of `title` so iOS
+  WKWebView users get the status verbally.
+- **Tap targets meet Apple HIG** (~30 × 30 hit area on the
+  bullet/checkbox; bullet is now actually tappable). `[[ref]]` and
+  `#tag` taps navigate instead of opening the editor.
+- **Long-press TODO** uses a distinct success haptic when creating
+  a new TODO vs. cycling an existing one.
+- **`SwipeRow` × `SwipeNavigator` conflict resolved** —
+  swipe-right on the left edge no longer races the per-row
+  swipe-delete (each one captures only its own direction).
+- **`PageSwitcher`** opens the first match on `Enter`, dismisses
+  on `Escape`, and supports swipe-down on the handle to dismiss
+  (without stealing scroll from the list).
+- **Backlinks empty state** so the bidirectional-linking concept
+  is discoverable on freshly-created pages.
+- **Performance** in long outlines: `draft()` is now a lazy getter
+  prop only read by the block being edited (was triggering a
+  reactive effect in every BlockRow per keystroke). Auto-resize
+  coalesced into a single `requestAnimationFrame`.
+
+### Shared (`outl-actions`)
+
+- `edit_text` writes its argument **verbatim** instead of
+  preserving a leading `TODO `/`DONE ` prefix automatically.
+  Callers that surface state separately (mobile checkbox)
+  reattach the prefix themselves — required so erasing the
+  prefix in the editor actually sticks. TUI path is unaffected
+  (it always passes the raw block text through reconcile).
+
+### TUI (`outl-tui`)
+
+- Backspace inside an empty `[[]]` / `(())` now collapses both
+  brackets in one keystroke (matches the mobile behaviour).
+
 ## [0.3.0] — 2026-05-30
 
 Cross-device sync goes live. A brand-new iOS app and the TUI share

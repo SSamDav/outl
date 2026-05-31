@@ -610,8 +610,12 @@ pub(crate) fn handle_insert_key(app: &mut App, key: KeyEvent) -> Result<()> {
             let should_delete = if let Mode::Insert { buffer, .. } = &mut app.mode {
                 if buffer.cursor == 0 && buffer.is_empty() {
                     true
-                } else {
+                } else if !buffer.delete_pair_back() {
+                    // No empty `[[]]` / `(())` to collapse around the
+                    // cursor — fall back to deleting the previous char.
                     buffer.delete_back();
+                    false
+                } else {
                     false
                 }
             } else {

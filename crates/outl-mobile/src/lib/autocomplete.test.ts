@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applySuggestion,
   autoClosePair,
+  autoDeletePair,
   detectRefContext,
   insertPair,
   insertText,
@@ -30,6 +31,37 @@ describe("autoClosePair", () => {
 
   it("ignores positions too close to the start", () => {
     expect(autoClosePair("[", 1)).toBeNull();
+  });
+});
+
+describe("autoDeletePair", () => {
+  it("collapses an empty [[]] when caret is in the middle", () => {
+    const result = autoDeletePair("foo [[]]", 6);
+    expect(result).toEqual({ value: "foo ", caret: 4 });
+  });
+
+  it("collapses an empty (()) when caret is in the middle", () => {
+    const result = autoDeletePair("see (())", 6);
+    expect(result).toEqual({ value: "see ", caret: 4 });
+  });
+
+  it("does nothing when the pair has content between", () => {
+    expect(autoDeletePair("[[ave]]", 5)).toBeNull();
+    expect(autoDeletePair("((blk))", 5)).toBeNull();
+  });
+
+  it("does nothing when caret is outside the pair", () => {
+    expect(autoDeletePair("[[]]", 0)).toBeNull();
+    expect(autoDeletePair("[[]]", 4)).toBeNull();
+  });
+
+  it("does nothing without a matching closer to the right", () => {
+    expect(autoDeletePair("[[", 2)).toBeNull();
+    expect(autoDeletePair("((foo", 2)).toBeNull();
+  });
+
+  it("does not cross-mix [[ with ))", () => {
+    expect(autoDeletePair("[[))", 2)).toBeNull();
   });
 });
 

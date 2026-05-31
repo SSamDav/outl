@@ -1,5 +1,20 @@
 import { BlockNode } from "./api";
 
+/**
+ * Reconstruct the wire-format text of a block (TODO/DONE prefix
+ * reattached). The mobile API splits the TODO state out of `text`
+ * so the checkbox can render it separately, but Insert mode needs
+ * the user to see and be able to erase the prefix — otherwise
+ * dropping a TODO from the editor is impossible.
+ *
+ * Mirror of `outl_actions::split_todo` in reverse. Keep in sync with
+ * `outl_actions::TODO_PREFIX` / `DONE_PREFIX`.
+ */
+export function rawTextWithTodo(block: BlockNode): string {
+  if (!block.todo) return block.text;
+  return `${block.todo} ${block.text}`;
+}
+
 /** Locate a block by id anywhere in a (possibly nested) outline. */
 export function findBlock(blocks: BlockNode[], id: string): BlockNode | null {
   for (const b of blocks) {

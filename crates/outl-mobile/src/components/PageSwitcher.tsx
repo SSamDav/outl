@@ -1,4 +1,10 @@
-import { For, Show, createMemo, createResource, createSignal } from "solid-js";
+import {
+  For,
+  Show,
+  createMemo,
+  createResource,
+  createSignal,
+} from "solid-js";
 import { PageMeta, listPages } from "../lib/api";
 
 interface PageSwitcherProps {
@@ -10,13 +16,18 @@ interface PageSwitcherProps {
 
 /**
  * Bottom-sheet style page switcher. Lists every page in the
- * workspace with fuzzy filtering. Tap to open.
+ * workspace with fuzzy filtering. Tap to open, `Enter` to open the
+ * first match, swipe down on the handle to dismiss.
  */
 export function PageSwitcher(props: PageSwitcherProps) {
   const [pages, { refetch }] = createResource(() =>
     props.open ? listPages() : Promise.resolve<PageMeta[]>([]),
   );
   const [query, setQuery] = createSignal("");
+  // Sheet drag-to-dismiss state. Tracks vertical translate while the
+  // user drags the grab handle (or the header above it); releases
+  // below a threshold call `onClose`, anything else snaps back.
+  const [dragY, setDragY] = createSignal(0);
 
   const filtered = createMemo(() => {
     const all = pages() ?? [];
@@ -29,6 +40,39 @@ export function PageSwitcher(props: PageSwitcherProps) {
     );
   });
 
+  function pickFirst() {
+    const first = filtered()[0];
+    if (!first) return;
+    props.onPick(first.slug, first.kind);
+  }
+
+  let dragStartY = 0;
+  let dragActive = false;
+  function onHandleDown(e: PointerEvent) {
+    dragStartY = e.clientY;
+    dragActive = true;
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+  }
+  function onHandleMove(e: PointerEvent) {
+    if (!dragActive) return;
+    const dy = e.clientY - dragStartY;
+    // Only react to downward drag — upward drag is meaningless for
+    // a sheet pinned to the bottom.
+    setDragY(Math.max(0, dy));
+  }
+  function onHandleUp() {
+    if (!dragActive) return;
+    dragActive = false;
+    // 80px of finger travel ≈ user committed to dismiss. Below that
+    // we snap back to zero so the gesture is forgiving.
+    if (dragY() > 80) {
+      setDragY(0);
+      props.onClose();
+    } else {
+      setDragY(0);
+    }
+  }
+
   return (
     <Show when={props.open}>
       <div
@@ -37,11 +81,34 @@ export function PageSwitcher(props: PageSwitcherProps) {
       />
       <div
         class="fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col overflow-hidden rounded-t-2xl bg-(--color-ios-bg)/85 shadow-2xl outl-sheet-up backdrop-blur-2xl backdrop-saturate-150 dark:bg-(--color-iosd-bg)/85"
-        style="padding-bottom: env(safe-area-inset-bottom);"
+        style={{
+          "padding-bottom": "env(safe-area-inset-bottom)",
+          transform: `translateY(${dragY()}px)`,
+          transition: dragActive ? "none" : "transform 200ms cubic-bezier(0.32, 0.72, 0, 1)",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <header class="flex items-center gap-3 border-b border-(--color-ios-divider)/30 px-4 py-3 dark:border-(--color-iosd-divider)/30">
-          <span class="mx-auto h-1 w-10 rounded-full bg-(--color-ios-divider) dark:bg-(--color-iosd-divider)" />
+          {/* Drag-to-dismiss handle. We attach the drag handlers
+              and `touch-action: none` ONLY here, not to the whole
+              header — otherwise the user can't scroll the list
+              from anywhere near the top of the sheet because the
+              header steals the pointer. */}
+          <span
+            class="mx-auto block h-3 w-16 cursor-grab py-1 active:cursor-grabbing"
+            style={{ "touch-action": "none" }}
+            onPointerDown={onHandleDown}
+            onPointerMove={onHandleMove}
+            onPointerUp={onHandleUp}
+            onPointerCancel={onHandleUp}
+            aria-label="Drag to close"
+            role="button"
+          >
+            <span
+              aria-hidden="true"
+              class="block h-1 w-10 mx-auto rounded-full bg-(--color-ios-divider) dark:bg-(--color-iosd-divider)"
+            />
+          </span>
         </header>
         <div class="px-4 py-2">
           <div class="flex items-center gap-2 rounded-xl bg-(--color-ios-card) px-3 py-2 dark:bg-(--color-iosd-card)">
@@ -65,6 +132,17 @@ export function PageSwitcher(props: PageSwitcherProps) {
               placeholder="Search pages…"
               value={query()}
               onInput={(e) => setQuery(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                // Enter opens the first match — same convention as
+                // Spotlight / Raycast / Alfred. Esc dismisses.
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  pickFirst();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  props.onClose();
+                }
+              }}
               class="w-full bg-transparent text-[16px] outline-none"
             />
             <Show when={query().length > 0}>

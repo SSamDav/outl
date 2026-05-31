@@ -86,8 +86,14 @@ TODO state lives **in the block's text** as a prefix:
 ```
 
 This matches the TUI's existing wire format. `cycle_todo` walks
-`None → TODO → DONE → None`. `edit_text` preserves the prefix when
-the caller passes only the body — UI surfaces never need to special-case it.
+`None → TODO → DONE → None`. `edit_text` writes the caller's text
+**verbatim** — including the prefix — so the user can drop a TODO
+just by erasing `TODO `/`DONE ` in the editor. UIs that surface
+state separately (mobile checkbox) must reattach the prefix before
+calling `edit_text`; helper `rawTextWithTodo` on the mobile side
+does this. The historical "auto-preserve prefix" behaviour was
+removed because it made `TODO`/`DONE` impossible to delete from
+the editor.
 
 ## What this crate does NOT own
 

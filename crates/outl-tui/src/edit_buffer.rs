@@ -65,6 +65,34 @@ impl EditBuffer {
         self.cursor += 1;
     }
 
+    /// Backspace inside an empty doubled pair like `[[|]]` or `((|))`
+    /// — delete both opener and closer in one shot so the user
+    /// doesn't have to backspace four times to undo an aborted ref.
+    /// Returns `true` when the pair was collapsed, `false` when no
+    /// such pair surrounds the cursor (caller should fall back to
+    /// the normal one-char backspace).
+    pub fn delete_pair_back(&mut self) -> bool {
+        if self.cursor < 2 || self.cursor + 2 > self.chars.len() {
+            return false;
+        }
+        let left = (self.chars[self.cursor - 2], self.chars[self.cursor - 1]);
+        let right = (self.chars[self.cursor], self.chars[self.cursor + 1]);
+        let is_brackets = left == ('[', '[') && right == (']', ']');
+        let is_parens = left == ('(', '(') && right == (')', ')');
+        if !is_brackets && !is_parens {
+            return false;
+        }
+        // Remove [opener, opener, closer, closer] around the cursor.
+        for _ in 0..2 {
+            self.chars.remove(self.cursor); // both closers (shift left)
+        }
+        for _ in 0..2 {
+            self.cursor -= 1;
+            self.chars.remove(self.cursor); // both openers
+        }
+        true
+    }
+
     /// Delete the character before the cursor (Backspace).
     /// Returns `true` if a character was removed.
     pub fn delete_back(&mut self) -> bool {
@@ -208,5 +236,49 @@ mod tests {
         b.insert_str("[[ref]]");
         assert_eq!(b.as_string(), "[[ref]]");
         assert_eq!(b.cursor, 7);
+    }
+
+    #[test]
+    fn delete_pair_back_collapses_empty_brackets() {
+        let mut b = EditBuffer::from_text("foo [[]]");
+        b.cursor = 6; // between [[ and ]]
+        assert!(b.delete_pair_back());
+        assert_eq!(b.as_string(), "foo ");
+        assert_eq!(b.cursor, 4);
+    }
+
+    #[test]
+    fn delete_pair_back_collapses_empty_parens() {
+        let mut b = EditBuffer::from_text("see (())");
+        b.cursor = 6; // between (( and ))
+        assert!(b.delete_pair_back());
+        assert_eq!(b.as_string(), "see ");
+        assert_eq!(b.cursor, 4);
+    }
+
+    #[test]
+    fn delete_pair_back_skips_when_pair_has_content() {
+        let mut b = EditBuffer::from_text("[[ave]]");
+        b.cursor = 5; // between "ave" and ]]
+        assert!(!b.delete_pair_back());
+        assert_eq!(b.as_string(), "[[ave]]");
+        assert_eq!(b.cursor, 5);
+    }
+
+    #[test]
+    fn delete_pair_back_skips_at_buffer_edges() {
+        let mut b = EditBuffer::from_text("[[]]");
+        b.cursor = 0;
+        assert!(!b.delete_pair_back());
+        b.cursor = 4;
+        assert!(!b.delete_pair_back());
+    }
+
+    #[test]
+    fn delete_pair_back_skips_cross_mixed_pairs() {
+        let mut b = EditBuffer::from_text("[[))");
+        b.cursor = 2;
+        assert!(!b.delete_pair_back());
+        assert_eq!(b.as_string(), "[[))");
     }
 }

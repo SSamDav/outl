@@ -143,9 +143,15 @@ pub(crate) fn create_with_explicit_id(
 // Edit
 // ---------------------------------------------------------------------------
 
-/// Replace the block's text with `new_text`. If the block has a
-/// `TODO`/`DONE` prefix, it is preserved automatically — the caller
-/// only sends the body.
+/// Replace the block's text with `new_text` verbatim.
+///
+/// `new_text` is the **raw** wire text, prefix and all. Callers that
+/// surface TODO/DONE state separately (e.g. the mobile client's
+/// checkbox) must reattach the appropriate `TODO `/`DONE ` prefix
+/// before calling — otherwise the state is lost. This intentionally
+/// shifts the responsibility to the caller so the user can also
+/// **drop** TODO/DONE by erasing the prefix in the editor; an
+/// auto-preserve here would silently undo that intent.
 pub fn edit_text(
     workspace: &mut Workspace,
     hlc: &HlcGenerator,
@@ -154,20 +160,7 @@ pub fn edit_text(
 ) -> Result<(), ActionError> {
     ensure_in_tree(workspace, node)?;
 
-    let current = workspace.block_text(node).unwrap_or_default();
-    let prefix = if current.starts_with("TODO ") {
-        Some("TODO ")
-    } else if current.starts_with("DONE ") {
-        Some("DONE ")
-    } else {
-        None
-    };
-    let final_text = match prefix {
-        Some(p) => format!("{p}{new_text}"),
-        None => new_text.to_string(),
-    };
-
-    let update = workspace.build_text_replace_update(node, &final_text);
+    let update = workspace.build_text_replace_update(node, new_text);
     if update.is_empty() {
         return Ok(());
     }
@@ -398,12 +391,18 @@ mod tests {
     }
 
     #[test]
-    fn edit_preserves_todo_prefix() {
+    fn edit_writes_text_verbatim_including_todo_prefix() {
         let (mut ws, hlc) = new_workspace();
         let n = append_block(&mut ws, &hlc, None, Some("ship it")).unwrap();
         toggle_todo(&mut ws, &hlc, n).unwrap();
-        edit_text(&mut ws, &hlc, n, "ship the feature").unwrap();
+        // Caller is responsible for keeping the prefix. The whole
+        // point of dropping prefix-preservation is letting the user
+        // erase `TODO `/`DONE ` from the editor and have it stick.
+        edit_text(&mut ws, &hlc, n, "TODO ship the feature").unwrap();
         assert_eq!(ws.block_text(n).as_deref(), Some("TODO ship the feature"));
+
+        edit_text(&mut ws, &hlc, n, "ship the feature").unwrap();
+        assert_eq!(ws.block_text(n).as_deref(), Some("ship the feature"));
     }
 
     #[test]

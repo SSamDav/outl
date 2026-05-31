@@ -9,7 +9,6 @@ import {
   onMount,
 } from "solid-js";
 import {
-  BlockNode,
   PageView,
   createBlock,
   dateTitle,
@@ -36,13 +35,16 @@ import {
   findBlock,
   findInsertedAfter,
   flatten,
+  rawTextWithTodo,
 } from "../lib/outline";
-import {
-  applySuggestion,
-  detectRefContext,
-  insertPair,
-  insertText,
-} from "../lib/autocomplete";
+import { applySuggestion, detectRefContext } from "../lib/autocomplete";
+import { parkCaret, spliceText } from "../lib/textarea";
+import { withTimeout } from "../lib/async";
+
+/** Maximum time we wait for a single Tauri command to settle before
+ *  surfacing a timeout error. Keeps the UI from getting stuck in
+ *  "syncing…" forever when iCloud coordination stalls. */
+const EDIT_TIMEOUT_MS = 8000;
 import {
   HIDE_MESSAGE,
   buildShowMessage,
@@ -59,14 +61,26 @@ import { haptic } from "../lib/haptics";
 import { useKeyboardInset } from "../lib/viewport";
 import { BacklinksSection } from "./BacklinksSection";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { Toast } from "./Toast";
 
 export function Journal() {
   const [view, setView] = createSignal<PageView | null>(null);
   const [loaded, setLoaded] = createSignal(false);
   const [refreshing, setRefreshing] = createSignal(false);
+  // Loading message + failure flag drive the initial-load placeholder.
+  // We progressively upgrade the message so the user knows we're
+  // still trying, and flip `loadFailed` only when we give up so the
+  // retry button has a clean condition to render against.
+  const [loadingMessage, setLoadingMessage] = createSignal("Loading…");
+  const [loadFailed, setLoadFailed] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [draft, setDraft] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
+  // Optional retry handler tied to the most recent error. When set,
+  // the toast pins (no auto-dismiss) and shows a "Retry" button. We
+  // store it alongside `error` so callers can offer the affordance
+  // without plumbing it through every async helper.
+  const [errorRetry, setErrorRetry] = createSignal<(() => void) | null>(null);
   const [stats] = createResource(workspaceStats);
   const [switcherOpen, setSwitcherOpen] = createSignal(false);
   // When set, the delete-confirmation dialog is open. Holds the
@@ -76,6 +90,19 @@ export function Journal() {
     { id: string; descendants: number } | null
   >(null);
   const [syncing, setSyncing] = createSignal(false);
+  // Network state — drives the `<SyncDot>` "offline" pill so the
+  // user knows iCloud peer pushes are stalled. `navigator.onLine`
+  // is not perfectly accurate (it lies when a captive portal eats
+  // requests) but it's the best signal a WebView has.
+  const [online, setOnline] = createSignal(
+    typeof navigator !== "undefined" ? navigator.onLine : true,
+  );
+  // Single in-flight `editBlock` lock. Two concurrent edits to the
+  // same block can land in arbitrary order at the backend (e.g.
+  // toggle-todo's optimistic commit racing with a delayed onBlur
+  // commit), and the loser overwrites the winner. We serialize so
+  // the user's last keystroke always wins.
+  let commitInFlight: Promise<unknown> | null = null;
   const keyboardInset = useKeyboardInset();
   const [activeTextareaSignal, setActiveTextareaSignal] = createSignal<
     HTMLTextAreaElement | null
@@ -112,12 +139,37 @@ export function Journal() {
     setView(v);
   }
 
+  // Native bridges + reactive effects MUST register synchronously,
+  // before any `await`. Solid loses the owner context across an
+  // `await` boundary, so `createEffect` / `onCleanup` called after
+  // an awaited call become orphans — the effect never tracks
+  // signals, the cleanup never fires. Specifically: putting
+  // `registerNativeSuggesterBridge()` after `await loadTodayWithRetry()`
+  // is what made the ref autocomplete look broken on iOS: state was
+  // published once and then never updated as the user typed inside
+  // `[[…]]`.
+  registerNativeToolbarBridge();
+  registerOpsChangeBridge();
+  registerNativeSuggesterBridge();
+
+  // Track connectivity so the SyncDot can show "offline" when iCloud
+  // can't reach peers. Both listeners are pure DOM side-effects but
+  // they must be registered + torn down within the component's
+  // owner; `onCleanup` here, not deep inside `onMount`'s async body.
+  if (typeof window !== "undefined") {
+    const upOnline = () => setOnline(true);
+    const upOffline = () => setOnline(false);
+    window.addEventListener("online", upOnline);
+    window.addEventListener("offline", upOffline);
+    onCleanup(() => {
+      window.removeEventListener("online", upOnline);
+      window.removeEventListener("offline", upOffline);
+    });
+  }
+
   onMount(async () => {
-    await loadTodayWithRetry();
-    registerNativeToolbarBridge();
-    registerOpsChangeBridge();
     listenForWorkspaceReady();
-    registerNativeSuggesterBridge();
+    await loadTodayWithRetry();
   });
 
   /**
@@ -134,15 +186,16 @@ export function Journal() {
       if (!el) return;
       const ctx = detectRefContext(el.value, el.selectionStart ?? 0);
       if (!ctx) return;
+      // Build the result through the pure helper so its semantics
+      // (e.g. choosing `[[` vs `((` delimiters) stay one place, but
+      // apply it via `spliceText` + `parkCaret` to dodge the
+      // Solid-binding caret-reset trap that bit `el.value = …`.
       const result = applySuggestion(el.value, ctx, slug);
-      el.value = result.value;
-      try {
-        el.setSelectionRange(result.caret, result.caret);
-      } catch {
-        // ignore — textarea may be momentarily blurred
-      }
-      setDraft(result.value);
-      el.focus({ preventScroll: true });
+      const insert = result.value.slice(ctx.openIndex, result.caret);
+      spliceText(el, ctx.openIndex, ctx.replaceEnd, insert);
+      parkCaret(el, result.caret);
+      setDraft(el.value);
+      parkCaret(el, result.caret);
       setNativeSuggesterState(null);
     });
     onCleanup(cleanup);
@@ -216,6 +269,12 @@ export function Journal() {
   }
 
   async function loadTodayWithRetry() {
+    // Show a generic "Loading…" first, then upgrade the message to
+    // "Connecting to iCloud…" after a few retries so the user knows
+    // we're not stuck — iCloud cold-start can legitimately take
+    // several seconds the first time the app opens.
+    setLoadingMessage("Loading…");
+    setLoadFailed(false);
     for (let i = 0; i < 50; i += 1) {
       try {
         const v = await openTodayJournal();
@@ -226,17 +285,21 @@ export function Journal() {
       } catch (e) {
         const msg = String(e);
         if (msg.includes("workspace_loading")) {
+          if (i === 3) setLoadingMessage("Connecting to iCloud…");
+          if (i === 15) setLoadingMessage("Still waiting on iCloud…");
           // Workspace opener still in flight; back off briefly and
           // try again. Capped at ~10s of retries.
           await new Promise((r) => setTimeout(r, 200));
           continue;
         }
         setError(msg);
+        setLoadFailed(true);
         setLoaded(true);
         return;
       }
     }
     setError("Workspace took too long to open.");
+    setLoadFailed(true);
     setLoaded(true);
   }
 
@@ -355,9 +418,42 @@ export function Journal() {
     const pid = pageId();
     if (!id || !pid) return;
     const text = draft();
-    setEditingId(null);
-    const next = await withError(() => editBlock(pid, id, text));
-    if (next) applyView(next);
+    // Serialize: if an earlier edit is still in flight, wait for it
+    // to land before we send this one. Without this, a quick
+    // sequence like (type → toggle TODO → blur) can hit the
+    // backend out of order and the older edit overwrites the newer.
+    if (commitInFlight) {
+      try {
+        await commitInFlight;
+      } catch {
+        // ignore — we still want our own commit to try
+      }
+    }
+    setSyncing(true);
+    const op: Promise<PageView> = withTimeout(
+      editBlock(pid, id, text),
+      EDIT_TIMEOUT_MS,
+      "Save is taking too long",
+    );
+    commitInFlight = op;
+    const next = await withError(() => op);
+    if (commitInFlight === op) commitInFlight = null;
+    setSyncing(false);
+    if (next) {
+      // Only drop out of edit mode once the backend confirmed the
+      // save. If it failed, `withError` already surfaced the
+      // message and we leave the editor open with the draft intact
+      // so the user can retry instead of silently losing the text.
+      setEditingId(null);
+      applyView(next);
+    } else if (error()) {
+      // Save failed (timeout, backend error, etc). Offer a retry
+      // affordance — the draft is still in the editor, so the
+      // user's text is not lost.
+      setErrorRetry(() => () => {
+        void commitEdit();
+      });
+    }
   }
 
   async function handleToggleTodo(id: string) {
@@ -377,9 +473,10 @@ export function Journal() {
     applyView(next);
     if (wasEditing) {
       // Keep edit mode on the same block; refresh draft to the
-      // backend's view (without the TODO/DONE prefix).
+      // backend's view, **with** the TODO/DONE prefix reattached so
+      // the editor stays consistent with what the user just toggled.
       const block = findBlock(next.outline, id);
-      if (block) setDraft(block.text);
+      if (block) setDraft(rawTextWithTodo(block));
     }
   }
 
@@ -592,8 +689,15 @@ export function Journal() {
     }
   }
 
-  /** Insert a snippet (or open/close pair) into the active textarea
-   *  synchronously so iOS keeps the keyboard up across the change. */
+  /**
+   * Insert a snippet (or open/close pair) into the active textarea
+   * synchronously so iOS keeps the keyboard up across the change.
+   *
+   * Uses the `spliceText` + double `parkCaret` pattern (see
+   * `lib/textarea.ts`) so the caret lands at the intended spot
+   * even when Solid's `value={draft()}` binding effect fires later
+   * and would otherwise jump the caret to the end.
+   */
   function insertAtCursor(
     mode: "text" | "pair",
     open: string,
@@ -601,46 +705,31 @@ export function Journal() {
   ) {
     const el = activeTextarea;
     if (!el) return;
-    const value = el.value;
-    const caret = el.selectionStart ?? value.length;
-    const result =
-      mode === "pair"
-        ? insertPair(value, caret, open, close)
-        : insertText(value, caret, open);
-    el.value = result.value;
-    setDraft(result.value);
-    try {
-      el.setSelectionRange(result.caret, result.caret);
-    } catch {
-      // ignore — happens if the textarea is momentarily blurred
-    }
-    el.focus({ preventScroll: true });
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const insert = mode === "pair" ? open + close : open;
+    const targetCaret =
+      mode === "pair" ? start + open.length : start + insert.length;
+
+    spliceText(el, start, end, insert);
+    parkCaret(el, targetCaret);
+    setDraft(el.value);
+    parkCaret(el, targetCaret);
   }
 
   function wrapSelection(style: "bold" | "italic" | "code") {
     const el = activeTextarea;
     if (!el) return;
-    const before = el.value;
-    const start = el.selectionStart ?? before.length;
-    const end = el.selectionEnd ?? before.length;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
     const wrap = style === "bold" ? "**" : style === "italic" ? "*" : "`";
-    const next =
-      before.slice(0, start) +
-      wrap +
-      before.slice(start, end) +
-      wrap +
-      before.slice(end);
-    // Mutate DOM + state synchronously so iOS doesn't see us drop
-    // focus across an async boundary.
-    el.value = next;
-    setDraft(next);
-    const caret = start + wrap.length + (end - start) + wrap.length;
-    try {
-      el.setSelectionRange(caret, caret);
-    } catch {
-      // ignore — happens on textareas that are momentarily blurred
-    }
-    el.focus({ preventScroll: true });
+    const selected = el.value.slice(start, end);
+    const insert = `${wrap}${selected}${wrap}`;
+    spliceText(el, start, end, insert);
+    const targetCaret = start + insert.length;
+    parkCaret(el, targetCaret);
+    setDraft(el.value);
+    parkCaret(el, targetCaret);
   }
 
   return (
@@ -687,7 +776,15 @@ export function Journal() {
               </svg>
             </button>
             <div class="flex items-center gap-1">
-              <SyncDot status={syncing() ? "syncing" : "synced"} />
+              <SyncDot
+                status={
+                  !online()
+                    ? "offline"
+                    : syncing()
+                      ? "syncing"
+                      : "synced"
+                }
+              />
               <button
                 type="button"
                 aria-label="Sync from iCloud"
@@ -748,21 +845,46 @@ export function Journal() {
               <Show
                 when={loaded()}
                 fallback={
-                  <div class="px-5 py-12 text-center text-(--color-ios-text-secondary) dark:text-(--color-iosd-text-secondary)">
-                    Loading…
+                  <div class="flex flex-col items-center px-5 py-12 text-center text-(--color-ios-text-secondary) dark:text-(--color-iosd-text-secondary)">
+                    <span
+                      aria-hidden="true"
+                      class="mb-3 h-6 w-6 animate-spin rounded-full border-2 border-(--color-ios-accent) border-t-transparent"
+                    />
+                    <p class="text-[14px]">{loadingMessage()}</p>
                   </div>
                 }
               >
-                <button
-                  type="button"
-                  onClick={handleAppendBlock}
-                  class="block w-full px-5 py-12 text-center text-(--color-ios-text-secondary) active:opacity-50 dark:text-(--color-iosd-text-secondary)"
+                <Show
+                  when={loadFailed()}
+                  fallback={
+                    <button
+                      type="button"
+                      onClick={handleAppendBlock}
+                      class="block w-full px-5 py-12 text-center text-(--color-ios-text-secondary) active:opacity-50 dark:text-(--color-iosd-text-secondary)"
+                    >
+                      <p class="text-[15px]">Nothing here yet.</p>
+                      <p class="mt-1 text-[13px] text-(--color-ios-accent) dark:text-(--color-iosd-accent)">
+                        Tap to start writing
+                      </p>
+                    </button>
+                  }
                 >
-                  <p class="text-[15px]">Nothing here yet.</p>
-                  <p class="mt-1 text-[13px] text-(--color-ios-accent) dark:text-(--color-iosd-accent)">
-                    Tap to start writing
-                  </p>
-                </button>
+                  <div class="flex flex-col items-center px-5 py-12 text-center">
+                    <p class="text-[15px] text-(--color-ios-text-secondary) dark:text-(--color-iosd-text-secondary)">
+                      Couldn't open the workspace.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoaded(false);
+                        void loadTodayWithRetry();
+                      }}
+                      class="mt-3 rounded-full bg-(--color-ios-accent) px-5 py-2 text-[14px] font-medium text-white active:opacity-70 dark:bg-(--color-iosd-accent)"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </Show>
               </Show>
             }
           >
@@ -772,7 +894,7 @@ export function Journal() {
                   block={block}
                   depth={0}
                   editingId={editingId()}
-                  draftText={draft()}
+                  draftText={draft}
                   onStartEdit={startEdit}
                   onDraftChange={setDraft}
                   onCommitEdit={commitEdit}
@@ -793,13 +915,16 @@ export function Journal() {
           </Show>
         </section>
 
-        <Show when={error()}>
-          <p class="mx-5 mt-3 text-center text-[13px] text-(--color-ios-destructive) dark:text-(--color-iosd-destructive)">
-            {error()}
-          </p>
-        </Show>
-
-        <Show when={view() && view()!.backlinks.length > 0}>
+        {/* Always render the section for non-journal pages so the
+            bidirectional-linking concept is discoverable; journals
+            stay hidden when empty (the daily flow is already busy
+            enough without an empty box every day). */}
+        <Show
+          when={
+            view() &&
+            (view()!.backlinks.length > 0 || view()!.page.kind === "page")
+          }
+        >
           <BacklinksSection
             backlinks={view()!.backlinks}
             onJump={async (link) => {
@@ -863,6 +988,15 @@ export function Journal() {
         readonly
         class="pointer-events-none absolute h-0 w-0 -translate-y-full opacity-0"
         style="left: -9999px; top: -9999px;"
+      />
+
+      <Toast
+        message={error()}
+        onRetry={errorRetry() ?? undefined}
+        onDismiss={() => {
+          setError(null);
+          setErrorRetry(null);
+        }}
       />
 
       <PageSwitcher
