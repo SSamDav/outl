@@ -337,29 +337,108 @@ jobs:
       # --------------------------------------------------------------
       # Build. `cargo tauri ios build` runs xcodegen, compiles the
       # Rust libs for aarch64-apple-ios, archives via xcodebuild and
-      # writes the signed IPA to `gen/apple/build/outl.ipa`.
-      # `--export-method app-store-connect` flips ExportOptions.plist
-      # to App Store distribution (default is `debugging` — see the
-      # ExportOptions.plist currently checked in).
+      # tries to export the IPA. The archive step always succeeds
+      # with our patched pbxproj (Manual signing wired up); the
+      # export step FAILS because tauri-cli 2.11 regenerates an
+      # ExportOptions.plist with `signingStyle = automatic` and no
+      # `provisioningProfiles` dict — xcodebuild then refuses with
+      # `exportArchive No Accounts` / `No profiles for ... found`.
+      #
+      # We tolerate that export failure (`|| EXPORT_RC=$?`), check
+      # that the .xcarchive exists, and redo the export ourselves in
+      # the next step with a hand-rolled ExportOptions.plist that
+      # pins manual signing + the App Store profile.
       # --------------------------------------------------------------
-      - name: cargo tauri ios build (release, app-store)
+      - name: cargo tauri ios build (archive — export will be redone)
         working-directory: crates/outl-mobile
         env:
           CI: "true"
         run: |
-          cargo tauri ios build \
-            --export-method app-store-connect
+          EXPORT_RC=0
+          cargo tauri ios build --export-method app-store-connect || EXPORT_RC=$?
+          ARCHIVE="src-tauri/gen/apple/build/outl-mobile_iOS.xcarchive"
+          if [[ ! -d "$ARCHIVE" ]]; then
+            echo "::error::Archive missing at $ARCHIVE — tauri build failed before archiving (rc=$EXPORT_RC)"
+            exit 1
+          fi
+          if [[ $EXPORT_RC -ne 0 ]]; then
+            echo "::notice::tauri export step exited with $EXPORT_RC — expected; redoing manually next."
+          fi
+          ls -la "$ARCHIVE"
+
+      # --------------------------------------------------------------
+      # Hand-roll the ExportOptions.plist that xcodebuild needs for
+      # App Store distribution with manual signing. The keys that
+      # matter:
+      #   - method = app-store-connect (Xcode 15.4+, replaces `app-store`)
+      #   - signingStyle = manual (no Apple ID in keychain)
+      #   - provisioningProfiles: dict mapping Bundle ID → profile name
+      #   - teamID, stripSwiftSymbols, uploadSymbols (standard)
+      # --------------------------------------------------------------
+      - name: Write App Store ExportOptions.plist
+        id: export_opts
+        env:
+          PROFILE_NAME: ${{ steps.profile.outputs.name }}
+        run: |
+          PLIST="$RUNNER_TEMP/ExportOptions-appstore.plist"
+          cat >"$PLIST" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store-connect</string>
+              <key>destination</key>
+              <string>export</string>
+              <key>teamID</key>
+              <string>CPEEKT3E77</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>app.outl.mobile-app</key>
+                  <string>${PROFILE_NAME}</string>
+              </dict>
+              <key>stripSwiftSymbols</key>
+              <true/>
+              <key>uploadSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          plutil -lint "$PLIST"
+          echo "::group::ExportOptions.plist"
+          cat "$PLIST"
+          echo "::endgroup::"
+          echo "path=$PLIST" >> "$GITHUB_OUTPUT"
+
+      - name: Export IPA from archive (manual signing)
+        run: |
+          ARCHIVE="crates/outl-mobile/src-tauri/gen/apple/build/outl-mobile_iOS.xcarchive"
+          EXPORT_DIR="crates/outl-mobile/src-tauri/gen/apple/build"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist "${{ steps.export_opts.outputs.path }}"
 
       - name: Locate built IPA
         id: ipa
         shell: bash
         run: |
+          # xcodebuild -exportArchive names the IPA after the
+          # productName from the xcarchive's Info.plist — which is
+          # "outl" (see project.yml > PRODUCT_NAME). Fall back to a
+          # glob if the name ever shifts.
           IPA="crates/outl-mobile/src-tauri/gen/apple/build/outl.ipa"
           if [[ ! -f "$IPA" ]]; then
-            echo "::error::Expected IPA at $IPA not found"
-            echo "Searching for any .ipa under gen/apple/build:"
-            find crates/outl-mobile/src-tauri/gen/apple/build -maxdepth 4 -name '*.ipa' || true
-            exit 1
+            FOUND=$(find crates/outl-mobile/src-tauri/gen/apple/build -maxdepth 2 -name '*.ipa' | head -1)
+            if [[ -n "$FOUND" ]]; then
+              IPA="$FOUND"
+            else
+              echo "::error::No .ipa produced under gen/apple/build"
+              find crates/outl-mobile/src-tauri/gen/apple/build -maxdepth 3 -type f | head -40
+              exit 1
+            fi
           fi
           echo "path=$IPA" >> "$GITHUB_OUTPUT"
           ls -lh "$IPA"
