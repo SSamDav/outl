@@ -140,6 +140,9 @@ over `outl-actions`, plus an Objective-C iCloud watcher
 phase 2 lands. iOS is shipping; Android follows the same Tauri 2
 surface and needs an Android-side equivalent of the iCloud watcher.
 
+**iOS public beta on TestFlight:**
+<https://testflight.apple.com/join/P2GdWAMd>.
+
 ---
 
 ## Issues open since day zero

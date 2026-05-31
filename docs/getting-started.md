@@ -25,6 +25,26 @@ cp target/release/outl ~/.local/bin/
 (Or use `cargo install --path crates/outl-cli` if that's your
 flavor.)
 
+## iOS app (TestFlight beta)
+
+The iOS client is shipping as a public TestFlight beta:
+
+> **<https://testflight.apple.com/join/P2GdWAMd>**
+
+Install TestFlight from the App Store, open the join link on the
+iPhone, accept the beta, and the **outl** app lands on the home
+screen. It writes its op log to its own iCloud Drive container
+(`iCloud.app.outl.mobile-app`). To share a workspace with the TUI,
+point `outl --path` at the same `Documents/` directory inside the
+container:
+
+```bash
+outl --path ~/Library/Mobile\ Documents/iCloud~app~outl~mobile-app/Documents
+```
+
+Each device writes only to its own `ops-<actor>.jsonl`, so iCloud
+never has to merge — the CRDT does that.
+
 ## Create a workspace
 
 A workspace is just a directory. Pick a path, point `outl init` at

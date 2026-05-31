@@ -85,6 +85,11 @@ contain when synced to other tools. `outl-actions::cycle_todo` walks
 
 ## iCloud sync (mobile + TUI, today)
 
+The iOS app is on a public TestFlight beta —
+<https://testflight.apple.com/join/P2GdWAMd>. Install it on the
+iPhone, then point the TUI at the same iCloud Drive container to
+share the workspace.
+
 The mobile client persists the op log to the iCloud Ubiquity
 Container. The TUI reaches the same workspace by pointing
 `--path` at the container's `Documents/` directory:

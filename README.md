@@ -54,6 +54,9 @@ under everything; iCloud is just transport. P2P (iroh) on
 [the roadmap](docs/roadmap.md) replaces the transport later without
 touching the algorithm.
 
+→ **iOS beta is open on TestFlight:**
+[testflight.apple.com/join/P2GdWAMd](https://testflight.apple.com/join/P2GdWAMd).
+
 [paper]: https://martin.kleppmann.com/papers/move-op.pdf
 
 ## What's in the box today (0.1.0)
@@ -127,6 +130,11 @@ prompts). The P2P transport (iroh, phase 2) and the Tauri desktop
 shell (phase 5) are still ahead — see [the roadmap](docs/roadmap.md).
 The mobile client is Tauri 2 + SolidJS, which replaces the earlier
 uniffi plan (decision in [`docs/architecture.md`](docs/architecture.md)).
+
+The iOS app is available as a **public TestFlight beta** —
+[join here](https://testflight.apple.com/join/P2GdWAMd). Point the
+TUI at the same iCloud Drive container (`<container>/Documents/`) and
+both clients share a workspace.
 
 ## Docs
 

@@ -52,10 +52,15 @@ a time:
 - Single-device editor: **works**. Modes, undo/redo, autocomplete,
   backlinks, theming, fuzzy switcher, workspace-wide search, command
   palette.
-- P2P sync: **phase 2**. The algorithm is implemented and tested
-  ([170+ tests][tests]); the network transport (iroh) is the missing
-  piece.
-- Desktop / mobile: **phase 5–6**.
+- Cross-device sync: **works today** over iCloud Drive (macOS TUI ↔
+  iOS app). The iOS client is on public TestFlight beta —
+  [join here][testflight].
+- P2P transport: **phase 2**. The algorithm is implemented and tested
+  ([170+ tests][tests]); the wire transport (iroh) replaces iCloud
+  later without touching the algorithm.
+- Tauri desktop: **phase 5**.
+
+[testflight]: https://testflight.apple.com/join/P2GdWAMd
 
 [tests]: https://github.com/avelino/outl/actions
 
