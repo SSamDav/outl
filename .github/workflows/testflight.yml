@@ -365,6 +365,18 @@ jobs:
             echo "::error::Marketing icon not found at $ICON"
             exit 1
           fi
+
+          # ImageMagick isn't preinstalled on macos-latest runners
+          # (only available via Homebrew). `sips --setProperty
+          # hasAlpha NO` exists but silently produces a corrupt PNG
+          # in some image profiles — verified locally on this asset.
+          # `brew install --quiet` runs in ~20s, cached by the
+          # runner's brew cache between steps.
+          if ! command -v magick >/dev/null; then
+            echo "Installing ImageMagick via brew..."
+            brew install --quiet imagemagick
+          fi
+
           echo "Before:"
           sips -g hasAlpha -g pixelWidth -g pixelHeight "$ICON" | tail -3
           magick "$ICON" -background black -alpha remove -alpha off "$ICON"
