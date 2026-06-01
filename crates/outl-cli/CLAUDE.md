@@ -38,7 +38,9 @@ Each handler returns a `serde_json::Value` so the same code path
 serves both the CLI and `outl mcp serve`.
 
 - `outl page get|create|update|delete|list|rename|render`
-- `outl block get|append|insert|update|move|delete|toggle-todo|tree`
+  (`create` takes `--content=<JSON|->` to seed the outline in one call)
+- `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree`
+  (`append-tree` takes `--tree=<JSON|->`)
 - `outl daily today|get|append|range`
 - `outl search "<query>" [--in=blocks|pages|all] [--limit=N]`
 - `outl query [--tag=…] [--priority=…] [--since=…d] [--kind=…] [--prop key=value …]`
@@ -46,6 +48,9 @@ serves both the CLI and `outl mcp serve`.
 - `outl tag list|pages`
 - `outl prop set|get|list`
 - `outl export hugo|md|json`
+- `outl batch [--ops=<JSON|->]` — runs a list of write ops in one
+  workspace session (stop-on-first-error, returns `failed_at` /
+  `applied` on the partial outcome)
 - `outl workspace info`
 
 The full mapping (CLI ↔ MCP tool) is documented in
@@ -107,6 +112,7 @@ src/
 │   ├── backlinks.rs       # outl backlinks …
 │   ├── tag.rs             # outl tag …
 │   ├── prop.rs            # outl prop …
+│   ├── batch.rs           # outl batch
 │   └── workspace_info.rs  # outl workspace info
 └── mcp/
     ├── mod.rs             # stdio loop, dispatch

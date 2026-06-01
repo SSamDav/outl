@@ -75,6 +75,19 @@ Destructive tools (`outl_page_delete`, `outl_block_delete`) require
 `confirm: true` in the input. Without it they return a recoverable
 `CONFIRM_REQUIRED` error and the workspace is untouched.
 
+For multi-block authoring, prefer the composite tools over a chain
+of single-op calls:
+
+- `outl_block_append_tree` — append a root block + its recursive
+  children in one shot.
+- `outl_page_create` — accepts an optional `content` forest so a
+  brand-new page lands with its full outline in a single call.
+- `outl_batch` — apply a sequence of `{op, args}` writes in one
+  workspace session. Stops on first error and reports
+  `failed_at` / `applied` so the caller can pick up the suffix
+  that never ran. Supported ops cover every other write tool. See
+  [`docs/cli.md` → Batch](cli.md#batch) for the payload shape.
+
 ### Resources
 
 URIs the host can attach as context without an explicit tool call.

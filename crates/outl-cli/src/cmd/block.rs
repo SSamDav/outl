@@ -11,8 +11,9 @@ use clap::Subcommand;
 use serde_json::{json, Value};
 
 use outl_actions::{
-    append_block, apply_page_md_with_sidecar, children_of, create_after, enclosing_page_id,
-    page_meta, position_after, position_for_new_last_child, project_outline, split_todo, PageMeta,
+    append_block, append_forest, append_tree, apply_page_md_with_sidecar, children_of,
+    create_after, enclosing_page_id, page_meta, position_after, position_for_new_last_child,
+    project_outline, split_todo, BlockTreeSpec, PageMeta,
 };
 use outl_core::id::NodeId;
 use outl_core::op::{LogOp, Op};
@@ -43,6 +44,26 @@ pub enum BlockCommand {
         /// Block text body.
         #[arg(long)]
         text: String,
+        /// Force JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Append a whole subtree (root + recursive children) under a page or block.
+    ///
+    /// The `--tree` argument is a JSON blob shaped like
+    /// `{"text": "...", "children": [{"text": "...", "children": [...]}]}`.
+    /// Pass `--tree -` to read the JSON from stdin instead, which is the
+    /// recommended path for non-trivial trees.
+    AppendTree {
+        /// Target page slug. Required unless `--parent` is given.
+        #[arg(long)]
+        page: Option<String>,
+        /// Parent block id. Mutually exclusive with `--page`.
+        #[arg(long)]
+        parent: Option<String>,
+        /// Tree JSON (`-` reads from stdin).
+        #[arg(long)]
+        tree: String,
         /// Force JSON output.
         #[arg(long)]
         json: bool,
@@ -130,6 +151,19 @@ pub fn run(cmd: &BlockCommand, path: &Path) -> i32 {
             let result = ws::open(path)
                 .and_then(|mut ctx| append(&mut ctx, page.as_deref(), parent.as_deref(), text));
             emit(*json, result, |v| print_block_created("appended", v))
+        }
+        BlockCommand::AppendTree {
+            page,
+            parent,
+            tree,
+            json,
+        } => {
+            let result = read_tree_arg(tree).and_then(|spec| {
+                ws::open(path).and_then(|mut ctx| {
+                    append_tree_h(&mut ctx, page.as_deref(), parent.as_deref(), &spec)
+                })
+            });
+            emit(*json, result, print_append_tree)
         }
         BlockCommand::Insert { after, text, json } => {
             let result = ws::open(path).and_then(|mut ctx| insert(&mut ctx, after, text));
@@ -235,6 +269,85 @@ pub fn append(
         "parent": parent_id.to_string(),
         "text": text,
     }))
+}
+
+/// Read the `--tree` arg: either a JSON literal or `-` (stdin).
+fn read_tree_arg(arg: &str) -> Result<BlockTreeSpec, ApiError> {
+    let raw = if arg == "-" {
+        let mut buf = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)
+            .map_err(|e| ApiError::new(codes::INVALID_ARG, format!("read stdin: {e}")))?;
+        buf
+    } else {
+        arg.to_string()
+    };
+    parse_tree_spec(&raw)
+}
+
+/// Parse a `BlockTreeSpec` JSON payload and report a stable error code.
+pub(crate) fn parse_tree_spec(raw: &str) -> Result<BlockTreeSpec, ApiError> {
+    serde_json::from_str::<BlockTreeSpec>(raw)
+        .map_err(|e| ApiError::new(codes::INVALID_ARG, format!("invalid tree JSON: {e}")))
+}
+
+/// Resolve `--page` / `--parent` to a NodeId. Mirrors `append`'s rules
+/// (mutually exclusive, exactly one required).
+pub(crate) fn resolve_parent(
+    ctx: &WsCtx,
+    page: Option<&str>,
+    parent: Option<&str>,
+) -> Result<NodeId, ApiError> {
+    match (page, parent) {
+        (Some(_), Some(_)) => Err(ApiError::new(
+            codes::INVALID_ARG,
+            "use either --page or --parent, not both".to_string(),
+        )),
+        (Some(slug), None) => outl_actions::find_by_slug(&ctx.workspace, slug).ok_or_else(|| {
+            ApiError::new(codes::PAGE_NOT_FOUND, format!("page `{slug}` not found"))
+        }),
+        (None, Some(pid)) => parse_id(pid),
+        (None, None) => Err(ApiError::new(
+            codes::INVALID_ARG,
+            "append requires --page or --parent".to_string(),
+        )),
+    }
+}
+
+/// Append a whole subtree under a page or block.
+pub fn append_tree_h(
+    ctx: &mut WsCtx,
+    page: Option<&str>,
+    parent: Option<&str>,
+    spec: &BlockTreeSpec,
+) -> Result<Value, ApiError> {
+    let parent_id = resolve_parent(ctx, page, parent)?;
+    let outcome = append_tree(&mut ctx.workspace, &ctx.hlc, parent_id, spec)?;
+    write_enclosing_page(ctx, outcome.id)?;
+    Ok(json!({
+        "parent": parent_id.to_string(),
+        "tree": outcome_to_json(&outcome),
+    }))
+}
+
+/// Append a forest of subtrees under a page or block. Shared with
+/// `outl_page_create` when it gets `content`.
+pub(crate) fn append_forest_under(
+    ctx: &mut WsCtx,
+    parent_id: NodeId,
+    specs: &[BlockTreeSpec],
+) -> Result<Vec<Value>, ApiError> {
+    let outcomes = append_forest(&mut ctx.workspace, &ctx.hlc, parent_id, specs)?;
+    for outcome in &outcomes {
+        write_enclosing_page(ctx, outcome.id)?;
+    }
+    Ok(outcomes.iter().map(outcome_to_json).collect())
+}
+
+fn outcome_to_json(outcome: &outl_actions::BlockTreeOutcome) -> Value {
+    json!({
+        "id": outcome.id.to_string(),
+        "children": outcome.children.iter().map(outcome_to_json).collect::<Vec<_>>(),
+    })
 }
 
 /// Insert a new sibling right after `after`.
@@ -443,4 +556,23 @@ fn print_block_created(verb: &str, v: &Value) {
 fn print_block_simple(verb: &str, v: &Value) {
     let id = v.get("id").and_then(Value::as_str).unwrap_or("?");
     println!("{verb}: {id}");
+}
+
+fn print_append_tree(v: &Value) {
+    let parent = v.get("parent").and_then(Value::as_str).unwrap_or("?");
+    println!("appended tree under {parent}");
+    if let Some(tree) = v.get("tree") {
+        print_tree_outcome(tree, 1);
+    }
+}
+
+fn print_tree_outcome(node: &Value, depth: usize) {
+    let pad = "  ".repeat(depth);
+    let id = node.get("id").and_then(Value::as_str).unwrap_or("?");
+    println!("{pad}{id}");
+    if let Some(children) = node.get("children").and_then(Value::as_array) {
+        for child in children {
+            print_tree_outcome(child, depth + 1);
+        }
+    }
 }

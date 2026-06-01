@@ -61,8 +61,8 @@ pub mod tree;
 
 pub use backlinks::{backlinks_for_page, backlinks_for_target, extract_refs, Backlink};
 pub use block::{
-    append_block, create_after, create_under, delete, edit_text, indent, move_down, move_up,
-    outdent, toggle_todo,
+    append_block, append_forest, append_tree, create_after, create_under, delete, edit_text,
+    indent, move_down, move_up, outdent, toggle_todo, BlockTreeOutcome, BlockTreeSpec,
 };
 pub use error::ActionError;
 pub use journal::{

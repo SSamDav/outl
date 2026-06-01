@@ -1,6 +1,7 @@
 //! Subcommand handlers for the `outl` binary.
 
 pub mod backlinks;
+pub mod batch;
 pub mod block;
 pub mod daily;
 pub mod doctor;

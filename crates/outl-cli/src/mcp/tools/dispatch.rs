@@ -16,9 +16,9 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use crate::cmd::{
-    backlinks as bl_cmd, block as block_cmd, daily as daily_cmd, doctor as doctor_cmd,
-    export_v2 as exp_cmd, page as page_cmd, prop as prop_cmd, query as query_cmd,
-    search as search_cmd, tag as tag_cmd, workspace_info as wi_cmd,
+    backlinks as bl_cmd, batch as batch_cmd, block as block_cmd, daily as daily_cmd,
+    doctor as doctor_cmd, export_v2 as exp_cmd, page as page_cmd, prop as prop_cmd,
+    query as query_cmd, search as search_cmd, tag as tag_cmd, workspace_info as wi_cmd,
 };
 use crate::mcp::protocol::JsonRpcError;
 use crate::mcp::{tool_error_payload, tool_success_payload, ServerCtx};
@@ -43,6 +43,7 @@ const MUTATING: &[&str] = &[
     "outl_page_delete",
     "outl_page_rename",
     "outl_block_append",
+    "outl_block_append_tree",
     "outl_block_insert",
     "outl_block_update",
     "outl_block_move",
@@ -52,6 +53,7 @@ const MUTATING: &[&str] = &[
     "outl_daily_get",
     "outl_daily_append",
     "outl_page_prop_set",
+    "outl_batch",
 ];
 
 /// Dispatch a `tools/call` request to the correct handler.
@@ -85,7 +87,25 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
             let slug = require_str(args, "slug")?.to_string();
             let title = opt_str(args, "title").map(str::to_string);
             let icon = opt_str(args, "icon").map(str::to_string);
-            ctx.with_workspace(|wc| page_cmd::create(wc, &slug, title.as_deref(), icon.as_deref()))
+            let content_specs: Option<Vec<outl_actions::BlockTreeSpec>> = match args.get("content")
+            {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| {
+                    ApiError::new(
+                        crate::output::codes::INVALID_ARG,
+                        format!("invalid `content` shape: {e}"),
+                    )
+                })?),
+            };
+            ctx.with_workspace(|wc| {
+                page_cmd::create(
+                    wc,
+                    &slug,
+                    title.as_deref(),
+                    icon.as_deref(),
+                    content_specs.as_deref(),
+                )
+            })
         }
         "outl_page_update" => {
             let slug = require_str(args, "slug")?.to_string();
@@ -132,6 +152,26 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
             let text = require_str(args, "text")?.to_string();
             ctx.with_workspace(|wc| {
                 block_cmd::append(wc, page.as_deref(), parent.as_deref(), &text)
+            })
+        }
+        "outl_block_append_tree" => {
+            let page = opt_str(args, "page").map(str::to_string);
+            let parent = opt_str(args, "parent").map(str::to_string);
+            let tree_value = args.get("tree").cloned().ok_or_else(|| {
+                ApiError::new(
+                    crate::output::codes::INVALID_ARG,
+                    "missing required `tree`".to_string(),
+                )
+            })?;
+            let spec: outl_actions::BlockTreeSpec =
+                serde_json::from_value(tree_value).map_err(|e| {
+                    ApiError::new(
+                        crate::output::codes::INVALID_ARG,
+                        format!("invalid `tree` shape: {e}"),
+                    )
+                })?;
+            ctx.with_workspace(|wc| {
+                block_cmd::append_tree_h(wc, page.as_deref(), parent.as_deref(), &spec)
             })
         }
         "outl_block_insert" => {
@@ -282,6 +322,9 @@ fn run_tool(name: &str, args: &Value, ctx: &Arc<ServerCtx>) -> Result<Value, Api
             let slug = require_str(args, "slug")?.to_string();
             ctx.with_workspace(|wc| exp_cmd::json_ast(wc, &slug))
         }
+
+        // --- batch ---
+        "outl_batch" => ctx.with_workspace(|wc| batch_cmd::apply_batch(wc, args)),
 
         // --- workspace ---
         "outl_workspace_info" => ctx.with_workspace(|wc| Ok(wi_cmd::info(wc))),

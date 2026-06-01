@@ -20,10 +20,38 @@ use outl_core::hlc::HlcGenerator;
 use outl_core::id::NodeId;
 use outl_core::op::{LogOp, Op};
 use outl_core::workspace::Workspace;
+use serde::{Deserialize, Serialize};
 
 use crate::error::ActionError;
 use crate::todo::cycle_todo;
 use crate::tree::{next_sibling, position_after, position_for_new_last_child, previous_sibling};
+
+/// Recursive spec for building a block + its descendants in one
+/// shot. The shape is what agents naturally produce ("write me a
+/// page with these bullets and these sub-bullets") and what import
+/// pipelines reduce trees to.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BlockTreeSpec {
+    /// Raw block text (TODO/DONE prefix is left to the caller, same
+    /// rule as [`edit_text`]).
+    pub text: String,
+    /// Children specs, applied left-to-right as last children of
+    /// the parent. Empty by default.
+    #[serde(default)]
+    pub children: Vec<BlockTreeSpec>,
+}
+
+/// Outcome of `append_tree` / `create_under_tree`. Mirrors the
+/// shape of the input so callers can walk the original spec and the
+/// freshly minted ids in lockstep.
+#[derive(Debug, Clone, Serialize)]
+pub struct BlockTreeOutcome {
+    /// Id of the node created for the root of this subtree.
+    pub id: NodeId,
+    /// Children outcomes, in the same order as the input
+    /// `children`. Empty when the spec had no children.
+    pub children: Vec<BlockTreeOutcome>,
+}
 
 /// Build a [`LogOp`] wrapping `op` with a fresh HLC.
 fn wrap(hlc: &HlcGenerator, op: Op) -> LogOp {
@@ -58,6 +86,50 @@ pub fn append_block(
     let parent = parent.unwrap_or_else(NodeId::root);
     let position = position_for_new_last_child(workspace, parent);
     create_with_position(workspace, hlc, parent, position, text)
+}
+
+/// Append a whole subtree under `parent` in a single call.
+///
+/// `spec.text` becomes a new last child of `parent`; each entry in
+/// `spec.children` is then attached recursively as the last child of
+/// that new node. The returned `BlockTreeOutcome` mirrors the input
+/// shape so the caller can pair every spec node with its freshly
+/// minted [`NodeId`].
+///
+/// Failure mode: if any nested op fails, the previously-applied ops
+/// stay in the op log (we intentionally do not roll them back — the
+/// CRDT log is append-only and the partial subtree is observable
+/// behavior). Callers that need all-or-nothing semantics should run
+/// the spec through validation first.
+pub fn append_tree(
+    workspace: &mut Workspace,
+    hlc: &HlcGenerator,
+    parent: NodeId,
+    spec: &BlockTreeSpec,
+) -> Result<BlockTreeOutcome, ActionError> {
+    let id = append_block(workspace, hlc, Some(parent), Some(&spec.text))?;
+    let children = spec
+        .children
+        .iter()
+        .map(|child| append_tree(workspace, hlc, id, child))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(BlockTreeOutcome { id, children })
+}
+
+/// Append every entry in `specs` as a contiguous block of new last
+/// children under `parent`, preserving order. Convenience for
+/// `outl_page_create`-with-content where the caller hands us the
+/// page's top-level outline as a forest.
+pub fn append_forest(
+    workspace: &mut Workspace,
+    hlc: &HlcGenerator,
+    parent: NodeId,
+    specs: &[BlockTreeSpec],
+) -> Result<Vec<BlockTreeOutcome>, ActionError> {
+    specs
+        .iter()
+        .map(|spec| append_tree(workspace, hlc, parent, spec))
+        .collect()
 }
 
 /// Insert a new sibling immediately after `after`, sharing the same
@@ -478,6 +550,95 @@ mod tests {
             .map(|(id, _)| id)
             .collect();
         assert_eq!(order, vec![b, a]);
+    }
+
+    #[test]
+    fn append_tree_creates_root_and_children_in_order() {
+        let (mut ws, hlc) = new_workspace();
+        let spec = BlockTreeSpec {
+            text: "root".into(),
+            children: vec![
+                BlockTreeSpec {
+                    text: "a".into(),
+                    children: vec![BlockTreeSpec {
+                        text: "a1".into(),
+                        children: vec![],
+                    }],
+                },
+                BlockTreeSpec {
+                    text: "b".into(),
+                    children: vec![],
+                },
+            ],
+        };
+        let outcome = append_tree(&mut ws, &hlc, NodeId::root(), &spec).unwrap();
+
+        assert_eq!(ws.block_text(outcome.id).as_deref(), Some("root"));
+        assert_eq!(outcome.children.len(), 2);
+
+        let a = &outcome.children[0];
+        let b = &outcome.children[1];
+        assert_eq!(ws.block_text(a.id).as_deref(), Some("a"));
+        assert_eq!(ws.block_text(b.id).as_deref(), Some("b"));
+        assert_eq!(ws.tree().parent(a.id), Some(outcome.id));
+        assert_eq!(ws.tree().parent(b.id), Some(outcome.id));
+
+        // Children of `root` come back in insertion order.
+        let kids: Vec<NodeId> = crate::tree::children_of(&ws, outcome.id)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(kids, vec![a.id, b.id]);
+
+        // a's nested child landed under a.
+        assert_eq!(a.children.len(), 1);
+        let a1 = &a.children[0];
+        assert_eq!(ws.block_text(a1.id).as_deref(), Some("a1"));
+        assert_eq!(ws.tree().parent(a1.id), Some(a.id));
+    }
+
+    #[test]
+    fn append_forest_preserves_order_and_targets_parent() {
+        let (mut ws, hlc) = new_workspace();
+        let parent = append_block(&mut ws, &hlc, None, Some("parent")).unwrap();
+        let specs = vec![
+            BlockTreeSpec {
+                text: "one".into(),
+                children: vec![],
+            },
+            BlockTreeSpec {
+                text: "two".into(),
+                children: vec![],
+            },
+            BlockTreeSpec {
+                text: "three".into(),
+                children: vec![],
+            },
+        ];
+        let outcomes = append_forest(&mut ws, &hlc, parent, &specs).unwrap();
+        let ids: Vec<NodeId> = outcomes.iter().map(|o| o.id).collect();
+        let kids: Vec<NodeId> = crate::tree::children_of(&ws, parent)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(kids, ids);
+    }
+
+    #[test]
+    fn append_tree_empty_text_creates_node_without_edit() {
+        let (mut ws, hlc) = new_workspace();
+        let spec = BlockTreeSpec {
+            text: "".into(),
+            children: vec![],
+        };
+        let outcome = append_tree(&mut ws, &hlc, NodeId::root(), &spec).unwrap();
+        // Empty text path skips the Edit op; block_text returns empty
+        // string (Yrs default).
+        assert_eq!(
+            ws.block_text(outcome.id).as_deref().unwrap_or(""),
+            "",
+            "empty-text spec must still create the node"
+        );
     }
 
     #[test]

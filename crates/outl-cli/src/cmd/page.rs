@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use outl_actions::page::SLUG_KEY;
 use outl_actions::{
     apply_page_md_with_sidecar, find_by_slug, list_pages, open_or_create_page, page_meta,
-    project_outline, read_text_prop, render_page_md, set_property, walk_subtree, PageKind,
+    project_outline, read_text_prop, render_page_md, set_property, walk_subtree, BlockTreeSpec,
+    PageKind,
 };
 use outl_core::id::NodeId;
 use outl_core::property::PropValue;
@@ -33,6 +34,11 @@ pub enum PageCommand {
         json: bool,
     },
     /// Create a new page.
+    ///
+    /// Pass `--content` with a JSON forest (`[{text, children?}, ...]`)
+    /// — or `--content -` to read it from stdin — to populate the
+    /// page's outline in a single call. Skipping `--content` keeps
+    /// the historical "empty page" behavior.
     Create {
         /// Page slug (filename-safe, e.g. `ideas`).
         slug: String,
@@ -42,6 +48,9 @@ pub enum PageCommand {
         /// Page icon (single emoji or short string).
         #[arg(long)]
         icon: Option<String>,
+        /// Initial page content as JSON forest. Pass `-` to read from stdin.
+        #[arg(long)]
+        content: Option<String>,
         /// Force JSON output.
         #[arg(long)]
         json: bool,
@@ -117,10 +126,20 @@ pub fn run(cmd: &PageCommand, path: &Path) -> i32 {
             slug,
             title,
             icon,
+            content,
             json,
         } => {
-            let result = ws::open(path)
-                .and_then(|mut ctx| create(&mut ctx, slug, title.as_deref(), icon.as_deref()));
+            let result = read_content_arg(content.as_deref()).and_then(|specs| {
+                ws::open(path).and_then(|mut ctx| {
+                    create(
+                        &mut ctx,
+                        slug,
+                        title.as_deref(),
+                        icon.as_deref(),
+                        specs.as_deref(),
+                    )
+                })
+            });
             emit(*json, result, |v| print_page_meta("created", v))
         }
         PageCommand::Update {
@@ -201,13 +220,53 @@ pub fn get(ctx: &mut WsCtx, slug: &str) -> Result<Value, ApiError> {
     }))
 }
 
+/// Read `--content` arg: `None` (skip), a JSON literal, or `-` (stdin).
+/// Returns the parsed forest so the caller can pass it to `create`.
+pub(crate) fn read_content_arg(arg: Option<&str>) -> Result<Option<Vec<BlockTreeSpec>>, ApiError> {
+    let Some(arg) = arg else {
+        return Ok(None);
+    };
+    let raw = if arg == "-" {
+        let mut buf = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)
+            .map_err(|e| ApiError::new(codes::INVALID_ARG, format!("read stdin: {e}")))?;
+        buf
+    } else {
+        arg.to_string()
+    };
+    parse_content_payload(&raw).map(Some)
+}
+
+/// Parse the page content payload — either a forest array
+/// (`[{...}, {...}]`) or a single root spec (`{...}`) for ergonomics.
+pub(crate) fn parse_content_payload(raw: &str) -> Result<Vec<BlockTreeSpec>, ApiError> {
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|e| ApiError::new(codes::INVALID_ARG, format!("invalid content JSON: {e}")))?;
+    let specs: Vec<BlockTreeSpec> = if value.is_array() {
+        serde_json::from_value(value).map_err(|e| {
+            ApiError::new(codes::INVALID_ARG, format!("invalid content forest: {e}"))
+        })?
+    } else {
+        let spec: BlockTreeSpec = serde_json::from_value(value).map_err(|e| {
+            ApiError::new(codes::INVALID_ARG, format!("invalid content shape: {e}"))
+        })?;
+        vec![spec]
+    };
+    Ok(specs)
+}
+
 /// Create a new page (idempotent on slug — re-creating returns the same
 /// meta).
+///
+/// When `content` is provided, every top-level spec is appended in
+/// order as a child of the page root. The ids land in the response
+/// under `content` so the caller can address them in follow-ups.
 pub fn create(
     ctx: &mut WsCtx,
     slug: &str,
     title: Option<&str>,
     icon: Option<&str>,
+    content: Option<&[BlockTreeSpec]>,
 ) -> Result<Value, ApiError> {
     let display_title = title.unwrap_or(slug);
     let id = open_or_create_page(
@@ -224,8 +283,21 @@ pub fn create(
         }
     }
 
+    let content_outcome = match content {
+        Some(specs) if !specs.is_empty() => {
+            Some(super::block::append_forest_under(ctx, id, specs)?)
+        }
+        _ => None,
+    };
+
     write_projection(ctx, id)?;
-    page_meta_value(ctx, id)
+    let mut payload = page_meta_value(ctx, id)?;
+    if let Some(outcomes) = content_outcome {
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("content".to_string(), serde_json::Value::Array(outcomes));
+        }
+    }
+    Ok(payload)
 }
 
 /// Update a page's title and/or icon. At least one of `--title` /

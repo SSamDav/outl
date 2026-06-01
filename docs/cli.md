@@ -108,7 +108,7 @@ column is the name Claude Desktop (or any MCP host) sees.
 | CLI                                                            | MCP tool             |
 |----------------------------------------------------------------|----------------------|
 | `outl page get <slug> [--json]`                                | `outl_page_get`      |
-| `outl page create <slug> --title=… [--icon=…] [--tags=a,b]`    | `outl_page_create`   |
+| `outl page create <slug> --title=… [--icon=…] [--content=<JSON\|->]` | `outl_page_create`   |
 | `outl page update <slug> [--title=…] [--icon=…]`               | `outl_page_update`   |
 | `outl page delete <slug> [--confirm]`                          | `outl_page_delete`   |
 | `outl page list [--filter=tag:foo] [--json]`                   | `outl_page_list`     |
@@ -122,12 +122,21 @@ on-disk `.md`/`.outl` — it does **not** rewrite `[[old_slug]]`
 references in other pages. Affected blocks come back in
 `affected_refs` so the caller can decide whether to bulk-rewrite.
 
+`page create --content` accepts a forest of
+`[{text, children?}, ...]` (or a single `{text, children?}` for
+ergonomics) so a brand-new page lands with its full outline in one
+op-log session instead of a chain of `block append` calls. Pass
+`--content -` to read the JSON from stdin. The returned `content`
+array mirrors the input and carries the freshly minted block ids,
+so the caller can keep referencing them in follow-ups.
+
 ### Block
 
 | CLI                                                            | MCP tool                |
 |----------------------------------------------------------------|-------------------------|
 | `outl block get <blk-XXX> [--json]`                            | `outl_block_get`        |
 | `outl block append <page> --text=… [--parent=blk-YYY]`         | `outl_block_append`     |
+| `outl block append-tree --page=… --tree=<JSON\|->`              | `outl_block_append_tree`|
 | `outl block insert --after=<blk-XXX> --text=…`                 | `outl_block_insert`     |
 | `outl block update <blk> --text=…`                             | `outl_block_update`     |
 | `outl block move <blk> --parent=<blk-YYY> [--after=<blk-ZZZ>]` | `outl_block_move`       |
@@ -140,6 +149,15 @@ detection still applies: a move that would create a cycle returns
 `{ "code": "CYCLE_REJECTED" }` and the op still goes into the log
 (see [docs/crdt.md](crdt.md)). `block toggle-todo` walks
 `None → TODO → DONE → None`, same as `outl_actions::cycle_todo`.
+
+`block append-tree` writes a root block plus its recursive
+children in one op-log session. `--tree` accepts the JSON shape
+`{"text": "...", "children": [{"text": "...", "children": [...]}]}`,
+or `--tree -` to read the JSON from stdin. The response mirrors
+the input shape with `id` at every node so the caller can map back
+to anything they wrote. Prefer this over chained
+`outl block append` calls when authoring structured content from a
+script or agent.
 
 ### Daily / Journal
 
@@ -208,6 +226,40 @@ from page properties, block refs flattened, code blocks preserved.
 `export md` is the same string `page render` returns. `export json`
 is the full AST plus sidecar — the format an external tool would
 ingest.
+
+### Batch
+
+| CLI                                  | MCP tool      |
+|--------------------------------------|---------------|
+| `outl batch [--ops=<JSON\|->] [--json]` | `outl_batch`  |
+
+`batch` runs a list of write ops sequentially in one workspace
+session. Input shape:
+
+```json
+{
+  "ops": [
+    { "op": "page_create",       "args": { "slug": "ideas" } },
+    { "op": "block_append_tree", "args": { "page": "ideas",
+                                           "tree": { "text": "root",
+                                                     "children": [{ "text": "child" }] } } },
+    { "op": "page_prop_set",     "args": { "page": "ideas", "key": "icon", "value": "💡" } }
+  ]
+}
+```
+
+Supported `op` names: `page_create`, `page_update`, `page_delete`,
+`page_rename`, `block_append`, `block_append_tree`, `block_insert`,
+`block_update`, `block_move`, `block_delete`, `block_toggle_todo`,
+`daily_append`, `page_prop_set`. Each op's `args` mirror the
+matching standalone tool.
+
+**Semantics: stop-on-first-error.** When an op fails, earlier ops
+stay in the op log (they're already CRDT ops; we don't roll them
+back) and the response carries `failed_at`, `failed_op`, and
+`error` so the caller can decide what to do with the suffix that
+never ran. CLI exit code is `1` in that case; MCP returns the
+payload via the normal envelope.
 
 ### Workspace / Admin
 
@@ -289,7 +341,8 @@ Shipping today:
   `outl migrate-to-shared`, `outl import logseq|roam`, `outl theme`.
 - `outl` (no subcommand) opens the TUI.
 - `outl page get|create|update|delete|list|rename|render`
-- `outl block get|append|insert|update|move|delete|toggle-todo|tree`
+  (`create` accepts `--content` to seed the outline in one call)
+- `outl block get|append|append-tree|insert|update|move|delete|toggle-todo|tree`
 - `outl daily today|get|append|range`
 - `outl search "<query>" [--in=blocks|pages|all]`
 - `outl query [--tag] [--priority] [--since=Nd] [--kind] [--prop k=v]`
@@ -297,6 +350,7 @@ Shipping today:
 - `outl tag list|pages`
 - `outl page prop set|get|list`
 - `outl export hugo|md|json`
+- `outl batch` — stream `{ops: [...]}` from stdin (or `--ops=…`)
 - `outl workspace info`
 - `outl mcp serve` — full MCP protocol surface (tools, resources,
   prompts) over stdio.

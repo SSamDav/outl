@@ -134,6 +134,9 @@ enum Command {
         #[command(subcommand)]
         sub: cmd::backlinks::BacklinksCommand,
     },
+    /// Apply a list of write ops sequentially in one workspace session.
+    /// Reads `{"ops": [...]}` from stdin by default.
+    Batch(cmd::batch::BatchArgs),
     /// Tag listing and lookups.
     Tag {
         #[command(subcommand)]
@@ -260,6 +263,10 @@ fn main() -> Result<()> {
         Some(Command::Backlinks { sub }) => {
             let p = resolve_path(cli.workspace.as_ref(), None)?;
             std::process::exit(cmd::backlinks::run(&sub, &p));
+        }
+        Some(Command::Batch(args)) => {
+            let p = resolve_path(cli.workspace.as_ref(), None)?;
+            std::process::exit(cmd::batch::run(&args, &p));
         }
         Some(Command::Tag { sub }) => {
             let p = resolve_path(cli.workspace.as_ref(), None)?;

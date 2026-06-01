@@ -116,3 +116,68 @@ jobs:
           path: target/criterion/
           if-no-files-found: warn
           retention-days: 30
+
+  bench-cli-xlarge:
+    # End-to-end CLI bench: subprocess + workspace lock + op log +
+    # sqlite + sidecar + md write — the path the user actually walks.
+    # `bench-xlarge` above stays focused on the algorithm; this job
+    # catches regressions in the surface that wraps it.
+    name: bench CLI (xlarge, 10k via outl batch)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup show
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-cli-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-cli-
+            ${{ runner.os }}-cargo-bench-
+            ${{ runner.os }}-cargo-
+      - name: Install hyperfine
+        run: cargo install hyperfine --locked
+      - name: Build release binaries
+        run: cargo build --release -p outl-cli -p xtask
+      - name: Generate 10k-page batch payload
+        run: |
+          mkdir -p /tmp/outl-bench
+          ./target/release/gen-10k --pages 10000 --blocks-per-page 3 \
+            > /tmp/outl-bench/pages.json
+          wc -c /tmp/outl-bench/pages.json
+      - name: Init workspace
+        run: ./target/release/outl init /tmp/outl-bench/ws
+      - name: Apply 10k pages via outl batch (one call)
+        run: |
+          start=$(date +%s)
+          ./target/release/outl -w /tmp/outl-bench/ws batch --json \
+            < /tmp/outl-bench/pages.json \
+            | tee /tmp/outl-bench/batch-result.json \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print("applied=", d["data"]["applied"])'
+          end=$(date +%s)
+          echo "batch wall-clock: $((end - start))s"
+      - name: Hyperfine read ops
+        run: |
+          hyperfine --warmup 3 --runs 10 \
+            --export-json /tmp/outl-bench/hyperfine.json \
+            './target/release/outl -w /tmp/outl-bench/ws page list --json' \
+            './target/release/outl -w /tmp/outl-bench/ws search "block" --json --limit 50' \
+            './target/release/outl -w /tmp/outl-bench/ws query --tag=meeting --json' \
+            './target/release/outl -w /tmp/outl-bench/ws page get page-05000 --json' \
+            './target/release/outl -w /tmp/outl-bench/ws page render page-05000'
+      - name: Upload bench artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-bench-${{ github.run_number }}
+          path: |
+            /tmp/outl-bench/hyperfine.json
+            /tmp/outl-bench/batch-result.json
+          if-no-files-found: warn
+          retention-days: 30

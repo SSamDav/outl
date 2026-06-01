@@ -23,13 +23,24 @@ pub fn list() -> Vec<Value> {
         ),
         tool_def(
             "outl_page_create",
-            "Create a new page (idempotent on slug).",
+            "Create a new page (idempotent on slug). Pass `content` as a forest of `{text, children?}` to populate the page outline in a single call instead of chaining `outl_block_append`.",
             json!({
                 "type": "object",
                 "properties": {
                     "slug": { "type": "string" },
                     "title": { "type": "string" },
-                    "icon": { "type": "string" }
+                    "icon": { "type": "string" },
+                    "content": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": { "type": "string" },
+                                "children": { "type": "array" }
+                            },
+                            "required": ["text"]
+                        }
+                    }
                 },
                 "required": ["slug"]
             }),
@@ -109,6 +120,26 @@ pub fn list() -> Vec<Value> {
                     "text": { "type": "string" }
                 },
                 "required": ["text"]
+            }),
+        ),
+        tool_def(
+            "outl_block_append_tree",
+            "Append a whole subtree (root + recursive children) as the last child of a page or block in a single call. `tree` is `{text, children?: [tree, ...]}`. Prefer this over chained `outl_block_append` calls when writing structured content.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "page": { "type": "string" },
+                    "parent": { "type": "string" },
+                    "tree": {
+                        "type": "object",
+                        "properties": {
+                            "text": { "type": "string" },
+                            "children": { "type": "array" }
+                        },
+                        "required": ["text"]
+                    }
+                },
+                "required": ["tree"]
             }),
         ),
         tool_def(
@@ -355,6 +386,28 @@ pub fn list() -> Vec<Value> {
                 "type": "object",
                 "properties": { "slug": { "type": "string" } },
                 "required": ["slug"]
+            }),
+        ),
+        // Batch
+        tool_def(
+            "outl_batch",
+            "Apply a sequence of write ops in one workspace session. Stops on first error and reports `failed_at` + `applied`. Use this for multi-step authoring (page + outline + props) so each op doesn't cost a round-trip. Supported `op` names: page_create, page_update, page_delete, page_rename, block_append, block_append_tree, block_insert, block_update, block_move, block_delete, block_toggle_todo, daily_append, page_prop_set. Each op's `args` mirror the matching `outl_<op>` tool.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "ops": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "op": { "type": "string" },
+                                "args": { "type": "object" }
+                            },
+                            "required": ["op"]
+                        }
+                    }
+                },
+                "required": ["ops"]
             }),
         ),
         // Workspace

@@ -4,6 +4,80 @@ All notable changes to outl are documented here. Format inspired by
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] — 2026-06-01
+
+Batch authoring for agents and scripts. The 0.4.0 CLI / MCP surface
+covered every primitive write, but creating a structured page meant
+chaining N tool calls — one per block — which costs round-trips,
+turn budget on the agent, and time. 0.4.1 collapses that into the
+three composite shapes an agent or import pipeline actually wants:
+write a subtree, create a page with content, and stream a sequence
+of writes in one workspace session.
+
+No storage or op-log format changes — every new tool is shimmed over
+the existing `outl-actions` primitives (`append_block`, `edit_text`,
+`set_property`). Drop-in upgrade from 0.4.0.
+
+### Added — composite write surface
+
+- **`outl_block_append_tree` / `outl block append-tree`.** Append a
+  root block plus its recursive children under a page or block in a
+  single op-log session. Input shape:
+  `{"text": "...", "children": [{"text": "...", "children": [...]}]}`.
+  Response mirrors the input with `id` at every node so the caller
+  can map specs back to freshly minted ids. CLI accepts the JSON
+  inline (`--tree '{...}'`) or via stdin (`--tree -`).
+- **`outl page create --content` / `outl_page_create` with
+  `content`.** A new page lands with its full outline forest in one
+  call instead of `page_create` + N × `block_append`. Accepts
+  either a single root (`{text, children?}`) or a forest
+  (`[{...}, {...}]`); the returned `content` array carries the
+  block ids. Skipping the field keeps the historical empty-page
+  behaviour.
+- **`outl batch` / `outl_batch`.** Apply a list of writes
+  sequentially in one workspace session. Supported `op` names:
+  `page_create`, `page_update`, `page_delete`, `page_rename`,
+  `block_append`, `block_append_tree`, `block_insert`,
+  `block_update`, `block_move`, `block_delete`,
+  `block_toggle_todo`, `daily_append`, `page_prop_set`. Each op's
+  `args` mirror the matching standalone tool. **Stop-on-first-error
+  semantics:** earlier ops stay in the op log (they're already CRDT
+  ops; we don't roll them back), and the response carries
+  `failed_at` / `failed_op` / `error` so the caller can recover or
+  retry only the suffix that never ran. CLI exit code is `1` on
+  partial failure.
+
+### Added — `outl-actions::block`
+
+- **`append_tree`, `append_forest`.** UI-agnostic primitives behind
+  the new composite tools. `BlockTreeSpec` + `BlockTreeOutcome` are
+  the shared DTOs (serde Serialize / Deserialize) so both client
+  layers and future plugins can compose subtrees without re-deriving
+  the recursion.
+
+### Added — bench
+
+- **`bench-cli-xlarge` workflow job.** Weekly + dispatch only.
+  Generates a 10k-page batch payload via the new `xtask gen-10k`
+  binary, applies it through `outl batch` end-to-end (subprocess +
+  workspace lock + op log + sqlite + sidecar + md write), then runs
+  `hyperfine` on `page list`, `search`, `query --tag`, `page get`,
+  and `page render` against the populated workspace. Catches
+  regressions in the surface that wraps the algorithm — the existing
+  `bench-xlarge` job stays focused on the algorithm itself via
+  criterion micro-benches.
+- **`xtask` workspace member.** Internal task runner; today ships
+  `gen-10k` (deterministic batch-payload generator) and is where any
+  future codegen / fixture / bench helper lands.
+
+### Docs
+
+- `docs/cli.md` — new **Batch** section with the payload shape and
+  failure semantics; `page create --content` and
+  `block append-tree` documented inline next to the existing primitives.
+- `docs/mcp.md` — multi-block authoring callout pointing at the
+  three new composite tools.
+
 ## [0.4.0] — 2026-06-01
 
 outl becomes scriptable. A full machine-shaped CLI (page, block,
