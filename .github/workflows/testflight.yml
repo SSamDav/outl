@@ -173,12 +173,28 @@ jobs:
             -o "$KEY_DIR/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
 
       - name: Upload IPA to TestFlight
+        shell: bash
         run: |
+          # `xcrun altool --type ios` is known to return exit 0 even on
+          # App Store Connect 4xx (e.g. duplicate CFBundleVersion). Capture
+          # output and fail explicitly when altool logs an ERROR line so a
+          # broken upload doesn't masquerade as a green job.
+          set -o pipefail
+          LOG=$(mktemp)
           xcrun altool --upload-app \
             --type ios \
             --file "${{ steps.ipa.outputs.path }}" \
             --apiKey "$APP_STORE_CONNECT_KEY_ID" \
-            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" 2>&1 | tee "$LOG"
+          rc=${PIPESTATUS[0]}
+          if [[ $rc -ne 0 ]]; then
+            echo "::error::altool exited with code $rc"
+            exit "$rc"
+          fi
+          if grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+ ERROR:' "$LOG"; then
+            echo "::error::altool reported ERROR despite exit 0 — see log above"
+            exit 1
+          fi
 
       - name: Re-upload IPA as workflow artifact (audit trail)
         if: always() && steps.ipa.outputs.path != ''

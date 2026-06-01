@@ -196,9 +196,58 @@ jobs:
           # Marketing string: workspace version with any pre-release
           # suffix stripped (Apple rejects `-beta.N` in
           # CFBundleShortVersionString).
+          # CFBundleShortVersionString: marketing version from Cargo.toml
+          # with the `-beta.N` suffix stripped (Apple rejects pre-release
+          # tags in this field).
           BASE=$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)
           SHORT_VERSION="${BASE%%-*}"
-          BUILD_NUMBER="${{ github.run_number }}"
+
+          # CFBundleVersion: marketing version concatenated with the
+          # beta counter that the Release workflow publishes as a git
+          # tag. Convention:
+          #   marketing  0.5.1     +  beta  27   =>  CFBundleVersion 0.5.1027
+          # BETA is zero-padded to 3 digits so the third component is
+          # always `<PATCH><BETA_PADDED>`. This keeps Apple's
+          # component-wise comparison monotonic across PATCH bumps:
+          #   0.5.1099 (patch 1 beta 99)  <  0.5.2001 (patch 2 beta 1)
+          # Apple sees three period-separated integers and the value
+          # only grows.
+          #
+          # BETA source priority:
+          #   1. Latest `v<SHORT_VERSION>-beta.<N>` tag in the repo.
+          #      This keeps Mobile in lockstep with whatever the
+          #      Release workflow last published for this marketing
+          #      version (run_number lives on Release, not Mobile).
+          #   2. Mobile's own `github.run_number` as fallback, used
+          #      when no beta tag has been cut yet (first run on a
+          #      brand-new marketing version).
+          LAST_BETA_TAG=$(git tag --list "v${SHORT_VERSION}-beta.*" --sort=-version:refname | head -n1)
+          if [[ -n "$LAST_BETA_TAG" ]]; then
+            BETA=$(echo "$LAST_BETA_TAG" | sed -E "s/^v${SHORT_VERSION}-beta\.([0-9]+)$/\1/")
+            echo "::notice::beta number ${BETA} from tag ${LAST_BETA_TAG}"
+          else
+            BETA="${{ github.run_number }}"
+            echo "::notice::no beta tag for ${SHORT_VERSION}, falling back to Mobile run_number ${BETA}"
+          fi
+
+          # Pad BETA to 3 digits. Caps at 999 betas per PATCH; bump
+          # PATCH before that limit is anywhere near hit.
+          if (( BETA > 999 )); then
+            echo "::error::BETA=${BETA} overflows 3-digit pad; bump PATCH in Cargo.toml"
+            exit 1
+          fi
+          BETA_PAD=$(printf '%03d' "$BETA")
+          BUILD_NUMBER="${SHORT_VERSION}${BETA_PAD}"
+
+          # Re-run of the same Mobile workflow would otherwise produce
+          # the same BUILD_NUMBER and trigger Apple's duplicate guard
+          # (409 ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE). Appending a
+          # fourth component on attempts > 1 keeps each attempt unique
+          # without bumping the published beta counter.
+          if [[ "${{ github.run_attempt }}" -gt 1 ]]; then
+            BUILD_NUMBER="${BUILD_NUMBER}.${{ github.run_attempt }}"
+          fi
+
           echo "short_version=${SHORT_VERSION}" >> "$GITHUB_OUTPUT"
           echo "build_number=${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "::notice::iOS release ${SHORT_VERSION} (build ${BUILD_NUMBER})"
