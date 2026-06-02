@@ -203,6 +203,7 @@ and ask the user** before changing. Don't unilaterally pivot.
 | MIT license | Simple, widely understood, no patent grant baggage |
 | `outl.app` domain owned | Use for docs/landing later |
 | Repo at `github.com/avelino/outl` | Personal profile, not org (small enough team) |
+| `[workspace.package].version` in root `Cargo.toml` is the **single source of truth** | Crate manifests inherit via `version.workspace = true`. `tauri.conf.json` deliberately omits `version` so Tauri 2 falls back to `Cargo.toml`. Bumping the workspace bumps everything. See `crates/outl-mobile/CLAUDE.md` → "Versioning + TestFlight release" before changing release/CI plumbing. |
 
 ## What you're NOT building yet
 
@@ -260,6 +261,7 @@ evolve.
   cross-device sync depends on per-actor append-only files
 - ❌ Using `id::` Logseq-style metadata anywhere
 - ❌ Marking work "done" without `/check` passing
+- ❌ Re-introducing `"version"` in `crates/outl-mobile/src-tauri/tauri.conf.json` — Tauri must keep falling back to `Cargo.toml` (see "Versioning + TestFlight release" in `crates/outl-mobile/CLAUDE.md`)
 
 ## When in doubt
 

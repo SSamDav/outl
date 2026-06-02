@@ -337,18 +337,6 @@ jobs:
           echo "uuid=$PROFILE_UUID" >> "$GITHUB_OUTPUT"
           echo "::notice::Provisioning profile '$PROFILE_NAME' ($PROFILE_UUID) installed"
 
-      - name: Patch Info.plist (CFBundleVersion + CFBundleShortVersionString)
-        shell: bash
-        run: |
-          PLIST="crates/outl-mobile/src-tauri/gen/apple/outl-mobile_iOS/Info.plist"
-          plutil -replace CFBundleShortVersionString \
-            -string "${{ steps.meta.outputs.short_version }}" "$PLIST"
-          plutil -replace CFBundleVersion \
-            -string "${{ steps.meta.outputs.build_number }}" "$PLIST"
-          echo "::group::Patched Info.plist"
-          plutil -p "$PLIST" | grep -E 'CFBundle(Version|ShortVersionString|Identifier)'
-          echo "::endgroup::"
-
       # See testflight.yml's "Patch xcodeproj for Manual signing" for
       # the rationale (CI runners have no Apple ID, default
       # `iPhone Developer` identity looks up Development profiles
@@ -422,6 +410,15 @@ jobs:
           fi
           magick "$ICON" -background black -alpha remove -alpha off "$ICON"
 
+      # Version: `tauri.conf.json` intentionally omits the `version`
+      # field. Per Tauri 2 docs, when unset Tauri reads it from the
+      # crate's `Cargo.toml`, which inherits `version.workspace = true`
+      # from the workspace root — single source of truth. Tauri
+      # propagates this to MARKETING_VERSION / CURRENT_PROJECT_VERSION
+      # in the pbxproj and to CFBundleShortVersionString in the
+      # generated Info.plist. CFBundleVersion (build number) is handled
+      # separately below in the post-archive plutil step, since Tauri
+      # only exposes one version field.
       - name: cargo tauri ios build (archive — export redone manually)
         working-directory: crates/outl-mobile
         env:
@@ -436,6 +433,38 @@ jobs:
           fi
           if [[ $EXPORT_RC -ne 0 ]]; then
             echo "::notice::tauri export step exited with $EXPORT_RC — expected; redoing manually next."
+          fi
+
+      # Tauri propagates `tauri.conf.json.version` to both
+      # CFBundleShortVersionString and CFBundleVersion. For TestFlight
+      # we need them different (marketing "0.5.1" vs build "0.5.1028"),
+      # so override CFBundleVersion directly in the archived .app's
+      # Info.plist. `xcodebuild -exportArchive` re-signs everything on
+      # export, so we don't need to re-sign manually here.
+      - name: Patch archive CFBundleVersion (build number)
+        shell: bash
+        run: |
+          ARCHIVE="crates/outl-mobile/src-tauri/gen/apple/build/outl-mobile_iOS.xcarchive"
+          APP_PLIST="$ARCHIVE/Products/Applications/outl.app/Info.plist"
+          if [[ ! -f "$APP_PLIST" ]]; then
+            echo "::error::Archived Info.plist not found at $APP_PLIST"
+            find "$ARCHIVE" -name "Info.plist" | head -10
+            exit 1
+          fi
+          echo "::group::Info.plist before patch"
+          plutil -p "$APP_PLIST" | grep -E 'CFBundle(Version|ShortVersionString|Identifier|Name)'
+          echo "::endgroup::"
+          plutil -replace CFBundleVersion \
+            -string "${{ steps.meta.outputs.build_number }}" "$APP_PLIST"
+          echo "::group::Info.plist after patch"
+          plutil -p "$APP_PLIST" | grep -E 'CFBundle(Version|ShortVersionString|Identifier|Name)'
+          echo "::endgroup::"
+          # Sanity check: short_version should already match what Tauri
+          # propagated from tauri.conf.json.
+          ACTUAL_SHORT=$(plutil -extract CFBundleShortVersionString raw "$APP_PLIST")
+          if [[ "$ACTUAL_SHORT" != "${{ steps.meta.outputs.short_version }}" ]]; then
+            echo "::error::CFBundleShortVersionString in archive is '$ACTUAL_SHORT', expected '${{ steps.meta.outputs.short_version }}'. tauri.conf.json patch did not propagate."
+            exit 1
           fi
 
       - name: Write App Store ExportOptions.plist

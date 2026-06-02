@@ -132,13 +132,84 @@ cargo tauri ios dev "iPhone 17 Pro outl"
 # Physical device (Mac + iPhone on the same WiFi)
 cargo tauri ios dev "<device-name>" --host
 
-# Release archive for TestFlight
+# Release archive for TestFlight (local smoke test only — CI ships)
 cargo tauri ios build
 ```
 
 After the first run, the iCloud capability must be confirmed in
 Xcode (Signing & Capabilities → iCloud → Containers →
 `iCloud.app.outl.mobile-app`).
+
+## Versioning + TestFlight release
+
+**Single source of truth: `Cargo.toml` workspace `version`.** To bump
+the app version, edit `[workspace.package].version` at the repo root
+and that's it. Everywhere else inherits:
+
+| Field | Where it lives | How it's resolved |
+|-------|----------------|-------------------|
+| Rust crate version | `crates/outl-mobile/src-tauri/Cargo.toml` | `version.workspace = true` |
+| Tauri config version | `crates/outl-mobile/src-tauri/tauri.conf.json` | Field intentionally **omitted** — Tauri 2 falls back to `Cargo.toml` |
+| `CFBundleShortVersionString` | iOS `Info.plist` | Tauri propagates from above during `cargo tauri ios build` |
+| `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` | `gen/apple/.../project.pbxproj` | Same — Tauri regenerates from `tauri.conf.json` (and therefore from `Cargo.toml`) every build |
+
+**Never** put `"version": "x.y.z"` back in `tauri.conf.json`. If it's
+present Tauri uses it instead of `Cargo.toml`, and the two drift the
+moment someone bumps the workspace. The `Patch archive
+CFBundleVersion` step in `.github/workflows/mobile.yml` has a sanity
+check that aborts the build if the propagated short version doesn't
+match the workspace.
+
+### CI release flow
+
+A push to `main` triggers two workflows in parallel:
+
+1. **`Release`** (`release.yml`) — auto-bumps `Cargo.toml` locally to
+   `<base>-beta.<run_number>` (e.g. `0.5.1-beta.27`), cuts a tag
+   `v0.5.1-beta.27`, builds desktop binaries, ships the Homebrew
+   formula. Never commits the bump back.
+2. **`Mobile`** (`mobile.yml`) — builds the signed iOS IPA from the
+   *unbumped* `Cargo.toml`, then uploads it as the
+   `outl-ios-release` artifact. Triggers `TestFlight` on success.
+3. **`TestFlight`** (`testflight.yml`) — downloads the IPA artifact
+   and uploads to App Store Connect via `xcrun altool`.
+
+### CFBundleVersion (build number) scheme
+
+Apple needs `CFBundleVersion` strictly monotonic across **every** IPA
+ever uploaded. We can't reuse `tauri.conf.json.version` directly
+because the marketing version (`0.5.1`) repeats across many beta
+builds. The scheme:
+
+```
+CFBundleShortVersionString = <SHORT_VERSION>            e.g. 0.5.1
+CFBundleVersion            = <SHORT_VERSION><BETA_PAD>  e.g. 0.5.1027
+                                              ^^^
+                              beta number zero-padded to 3 digits
+```
+
+Where `BETA` comes from the latest `v<SHORT_VERSION>-beta.<N>` git
+tag (set by the `Release` workflow). Fallback to Mobile's
+`github.run_number` when no beta tag exists for the current
+`SHORT_VERSION`. Re-runs append `.<run_attempt>` as a 4th component
+to dodge Apple's duplicate guard.
+
+The build number is set by patching the `.xcarchive`'s embedded
+`Info.plist` after `cargo tauri ios build` produces the archive, but
+**before** `xcodebuild -exportArchive` re-signs and exports the IPA.
+This is the only injection point that survives the build because
+Tauri only exposes a single `version` field.
+
+### What goes wrong if you forget this
+
+- `tauri.conf.json` left with stale `"version"`: IPA ships with that
+  version regardless of `Cargo.toml`. Apple sees a value that hasn't
+  been bumped → 409 duplicate.
+- Patching `gen/apple/.../Info.plist` directly before the build: Tauri
+  regenerates the file from `tauri.conf.json` on every build. No-op.
+- `xcrun altool --type ios` returns exit 0 even on 409 errors. The
+  `Upload IPA to TestFlight` step in `testflight.yml` greps for
+  `ERROR:` and exits non-zero explicitly — don't simplify that step.
 
 ## Testing
 
