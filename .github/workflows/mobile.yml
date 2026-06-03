@@ -532,33 +532,62 @@ jobs:
 
       # Tauri propagates `tauri.conf.json.version` to both
       # CFBundleShortVersionString and CFBundleVersion. For TestFlight
-      # we need them different (marketing "0.5.1" vs build "0.5.1028"),
-      # so override CFBundleVersion directly in the archived .app's
-      # Info.plist. `xcodebuild -exportArchive` re-signs everything on
-      # export, so we don't need to re-sign manually here.
-      - name: Patch archive CFBundleVersion (build number)
+      # we need them different (marketing "0.5.3" vs build "0.5.3047"),
+      # so override CFBundleVersion in TWO places:
+      #
+      #   1. The archived `.app`'s own Info.plist.
+      #   2. The archive's root `Info.plist` (the archive manifest),
+      #      under `ApplicationProperties.CFBundleVersion`.
+      #
+      # Why (2) matters: `xcodebuild -exportArchive` regenerates the
+      # app's Info.plist during re-signing from the archive manifest's
+      # `ApplicationProperties` block. Patching only (1) was silently
+      # reverted on export, every IPA shipped with the manifest's
+      # `0.5.3`, and TestFlight rejected the second upload with
+      # `ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE`.
+      #
+      # Confirmed locally via `scripts/local-testflight.sh`: with both
+      # patches the IPA carries the right CFBundleVersion.
+      - name: Patch archive CFBundleVersion (app + manifest)
         shell: bash
+        env:
+          BUILD_NUMBER: ${{ steps.meta.outputs.build_number }}
+          SHORT_VERSION: ${{ steps.meta.outputs.short_version }}
         run: |
+          set -euo pipefail
           ARCHIVE="crates/outl-mobile/src-tauri/gen/apple/build/outl-mobile_iOS.xcarchive"
           APP_PLIST="$ARCHIVE/Products/Applications/outl.app/Info.plist"
-          if [[ ! -f "$APP_PLIST" ]]; then
-            echo "::error::Archived Info.plist not found at $APP_PLIST"
-            find "$ARCHIVE" -name "Info.plist" | head -10
-            exit 1
-          fi
-          echo "::group::Info.plist before patch"
+          MANIFEST_PLIST="$ARCHIVE/Info.plist"
+          for f in "$APP_PLIST" "$MANIFEST_PLIST"; do
+            if [[ ! -f "$f" ]]; then
+              echo "::error::expected plist not found: $f"
+              find "$ARCHIVE" -name "Info.plist" | head -10
+              exit 1
+            fi
+          done
+
+          echo "::group::app Info.plist before patch"
           plutil -p "$APP_PLIST" | grep -E 'CFBundle(Version|ShortVersionString|Identifier|Name)'
           echo "::endgroup::"
-          plutil -replace CFBundleVersion \
-            -string "${{ steps.meta.outputs.build_number }}" "$APP_PLIST"
-          echo "::group::Info.plist after patch"
+          echo "::group::archive manifest Info.plist before patch"
+          plutil -p "$MANIFEST_PLIST" | grep -E 'CFBundle(Version|ShortVersionString)' || true
+          echo "::endgroup::"
+
+          plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP_PLIST"
+          plutil -replace ApplicationProperties.CFBundleVersion \
+            -string "$BUILD_NUMBER" "$MANIFEST_PLIST"
+
+          echo "::group::app Info.plist after patch"
           plutil -p "$APP_PLIST" | grep -E 'CFBundle(Version|ShortVersionString|Identifier|Name)'
           echo "::endgroup::"
-          # Sanity check: short_version should already match what Tauri
-          # propagated from tauri.conf.json.
+          echo "::group::archive manifest Info.plist after patch"
+          plutil -p "$MANIFEST_PLIST" | grep -E 'CFBundle(Version|ShortVersionString)'
+          echo "::endgroup::"
+
+          # Sanity: short_version should already match (Tauri's job).
           ACTUAL_SHORT=$(plutil -extract CFBundleShortVersionString raw "$APP_PLIST")
-          if [[ "$ACTUAL_SHORT" != "${{ steps.meta.outputs.short_version }}" ]]; then
-            echo "::error::CFBundleShortVersionString in archive is '$ACTUAL_SHORT', expected '${{ steps.meta.outputs.short_version }}'. tauri.conf.json patch did not propagate."
+          if [[ "$ACTUAL_SHORT" != "$SHORT_VERSION" ]]; then
+            echo "::error::CFBundleShortVersionString in archive is '$ACTUAL_SHORT', expected '$SHORT_VERSION'."
             exit 1
           fi
 
@@ -622,6 +651,47 @@ jobs:
           fi
           echo "path=$IPA" >> "$GITHUB_OUTPUT"
           ls -lh "$IPA"
+
+      # End-to-end verification: the only thing that matters is what
+      # CFBundleVersion lands inside the actual .ipa, since that's
+      # what altool ships to Apple. Earlier patches (Info.plist of the
+      # archive, pbxproj) can all be silently undone by Tauri's build
+      # or xcodebuild's exportArchive; this step unzips the produced
+      # .ipa and refuses to continue unless the embedded Info.plist
+      # matches the build number we computed.
+      - name: Verify CFBundleVersion in built IPA
+        env:
+          EXPECTED_SHORT: ${{ steps.meta.outputs.short_version }}
+          EXPECTED_BUILD: ${{ steps.meta.outputs.build_number }}
+          IPA_PATH: ${{ steps.ipa.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/ipa-verify"
+          rm -rf "$WORK"
+          mkdir -p "$WORK"
+          unzip -q "$IPA_PATH" -d "$WORK"
+          APP_PLIST=$(find "$WORK/Payload" -maxdepth 2 -name 'Info.plist' | head -1)
+          if [[ -z "$APP_PLIST" ]]; then
+            echo "::error::No Info.plist inside IPA payload"
+            find "$WORK" -maxdepth 4 -type f | head -30
+            exit 1
+          fi
+          echo "::group::Embedded Info.plist (CFBundle keys)"
+          plutil -p "$APP_PLIST" | grep -E 'CFBundle(Version|ShortVersionString|Identifier|Name)'
+          echo "::endgroup::"
+
+          ACTUAL_SHORT=$(plutil -extract CFBundleShortVersionString raw "$APP_PLIST")
+          ACTUAL_BUILD=$(plutil -extract CFBundleVersion raw "$APP_PLIST")
+          if [[ "$ACTUAL_SHORT" != "$EXPECTED_SHORT" ]]; then
+            echo "::error::CFBundleShortVersionString in IPA is '$ACTUAL_SHORT', expected '$EXPECTED_SHORT'"
+            exit 1
+          fi
+          if [[ "$ACTUAL_BUILD" != "$EXPECTED_BUILD" ]]; then
+            echo "::error::CFBundleVersion in IPA is '$ACTUAL_BUILD', expected '$EXPECTED_BUILD'. Apple's duplicate guard will reject this upload — something between 'Patch archive CFBundleVersion' and 'Export IPA from archive' is regenerating the plist."
+            exit 1
+          fi
+          echo "::notice::IPA carries CFBundleVersion=$ACTUAL_BUILD as expected"
 
       - name: Write build metadata (consumed by TestFlight)
         run: |
