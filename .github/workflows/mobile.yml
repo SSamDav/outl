@@ -432,6 +432,54 @@ jobs:
           print(f"::notice::Stripped libapp.a from Resources (def={n1}, ref={n2})")
           PY
 
+      # The committed `project.pbxproj` carries Tauri's scaffold defaults
+      # `MARKETING_VERSION = 0.2.0;` and `CURRENT_PROJECT_VERSION = 0.2.0;`.
+      # Tauri's `--config "version"` only writes the Info.plist during
+      # the build; it does NOT touch the pbxproj. The downstream
+      # `xcodebuild -exportArchive` step then *regenerates* the
+      # archived app's Info.plist from those pbxproj keys while
+      # re-signing for distribution — silently overwriting the version
+      # we patched into the archive (and producing TestFlight uploads
+      # that all carry `CFBundleVersion = 0.5.3`, which Apple rejects
+      # as DUPLICATE on the second attempt).
+      #
+      # Fix: pin both keys in the pbxproj before the build, so every
+      # downstream step (xcodebuild archive, exportArchive, altool
+      # upload) reads the correct values straight from source.
+      - name: Patch xcodeproj — MARKETING_VERSION + CURRENT_PROJECT_VERSION
+        env:
+          SHORT_VERSION: ${{ steps.meta.outputs.short_version }}
+          BUILD_NUMBER: ${{ steps.meta.outputs.build_number }}
+        run: |
+          set -euo pipefail
+          PBX="crates/outl-mobile/src-tauri/gen/apple/outl-mobile.xcodeproj/project.pbxproj"
+          # Capture before-state for the run log.
+          echo "::group::pbxproj version keys before patch"
+          grep -nE 'MARKETING_VERSION|CURRENT_PROJECT_VERSION' "$PBX" || true
+          echo "::endgroup::"
+
+          # The keys can appear with or without quotes around the
+          # value (Xcode/Tauri are inconsistent across templates).
+          # Replace both shapes for every Debug/Release configuration.
+          sed -i.bak -E \
+            -e "s|(MARKETING_VERSION = )\"?[^;\"]*\"?;|\1${SHORT_VERSION};|g" \
+            -e "s|(CURRENT_PROJECT_VERSION = )\"?[^;\"]*\"?;|\1${BUILD_NUMBER};|g" \
+            "$PBX"
+          rm -f "$PBX.bak"
+
+          echo "::group::pbxproj version keys after patch"
+          grep -nE 'MARKETING_VERSION|CURRENT_PROJECT_VERSION' "$PBX"
+          echo "::endgroup::"
+
+          # Sanity check: refuse to continue if patching produced
+          # nothing matching what we expect.
+          if ! grep -q "MARKETING_VERSION = ${SHORT_VERSION};" "$PBX"; then
+            echo "::error::MARKETING_VERSION patch did not land"; exit 1
+          fi
+          if ! grep -q "CURRENT_PROJECT_VERSION = ${BUILD_NUMBER};" "$PBX"; then
+            echo "::error::CURRENT_PROJECT_VERSION patch did not land"; exit 1
+          fi
+
       # App Store Connect rejects marketing icons with alpha. The
       # 1024x1024 icon ships with RGBA; composite over solid black
       # and strip alpha. ImageMagick installs in ~20s from brew.
