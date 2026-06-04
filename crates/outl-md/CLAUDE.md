@@ -24,7 +24,9 @@ Treat matching with the same paranoia as the CRDT.
   They operate on an in-flight AST that hasn't been parsed back into a workspace yet, so they sit in `outl-md` (UI-agnostic, no `Workspace`) rather than in `outl-actions`.
   The TUI re-exports them through a one-line shim at `outl-tui/src/outline_ops.rs`; the mobile client consumes them directly.
 - **Inline tokenization** (`inline.rs`) — `**bold**`, `[[refs]]`, `#tags`, `((blk-XXXXXX))`, `!((blk-XXXXXX))` — and `ref_at_cursor` (resolves to `RefTarget::Page`, `Journal`, `Tag`, or `Block`).
-  **UI-agnostic.** TUI, future Tauri GUI, and mobile clients all consume the same `InlineTok` / `RefTarget` types and map them to their own primitives (`Span`, HTML, `AttributedString`, `AnnotatedString`).
+  **UI-agnostic.** TUI, future Tauri GUI, and mobile clients all consume the same `InlineTok` / `RefTarget` types and map them to their own primitives (`Span`, HTML, `AttributedString`, `AnnotatedString`). Two forms:
+  - `InlineTok<'a>` + `tokenize` — borrowed, zero-copy. Use inside Rust where the source string outlives the tokens.
+  - `InlineToken` (owned) + `tokenize_owned` — Serde-friendly, suitable for wire payloads. `outl-actions` attaches the result to `OutlineNode.tokens` so mobile renders without a TS tokenizer. Adding a variant to `InlineTok` requires adding the matching variant to `InlineToken` plus the conversion in `InlineToken::from_borrowed` in the same change.
 - **Block index** (`block_index.rs`) — `NodeId → BlockEntry`, `ref_handle → NodeId`, `NodeId → [BlockReference]` (reverse refs), `(slug, dfs_path) → NodeId` for location lookup.
   Population is two-phase (`collect_page_blocks` then `collect_page_refs`) so reverse edges survive arbitrary page-load order during the initial build.
   Lookups are O(1).
