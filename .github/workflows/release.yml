@@ -294,9 +294,15 @@ jobs:
           ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Install Rust toolchain (arm64 + x86_64 targets)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+        # Plain `rustup target add` instead of `dtolnay/rust-toolchain`
+        # because the macOS runner ships with `stable` pre-installed
+        # for the host arch only, and the action's `targets:` input
+        # is a no-op when the toolchain is already present. The CLI
+        # `build` job above uses the same pattern for the same reason.
+        run: |
+          rustup show
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustup target list --installed
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
