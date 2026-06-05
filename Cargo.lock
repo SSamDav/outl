@@ -4443,7 +4443,7 @@ dependencies = [
 
 [[package]]
 name = "outl-actions"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "outl-core",
@@ -4459,7 +4459,7 @@ dependencies = [
 
 [[package]]
 name = "outl-cli"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4484,7 +4484,7 @@ dependencies = [
 
 [[package]]
 name = "outl-config"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -4496,7 +4496,7 @@ dependencies = [
 
 [[package]]
 name = "outl-core"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "fs2",
@@ -4515,7 +4515,7 @@ dependencies = [
 
 [[package]]
 name = "outl-desktop"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4542,7 +4542,7 @@ dependencies = [
 
 [[package]]
 name = "outl-exec"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "boa_engine",
@@ -4563,7 +4563,7 @@ dependencies = [
 
 [[package]]
 name = "outl-md"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "comrak",
@@ -4582,7 +4582,7 @@ dependencies = [
 
 [[package]]
 name = "outl-mobile"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "objc2",
@@ -4603,7 +4603,7 @@ dependencies = [
 
 [[package]]
 name = "outl-shortcuts"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4611,7 +4611,7 @@ dependencies = [
 
 [[package]]
 name = "outl-theme"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4619,7 +4619,7 @@ dependencies = [
 
 [[package]]
 name = "outl-tui"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -9564,7 +9564,7 @@ checksum = "0637d3a5566a82fa5214bae89087bc8c9fb94cd8e8a3c07feb691bb8d9c632db"
 
 [[package]]
 name = "xtask"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "clap",
  "serde_json",

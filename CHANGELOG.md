@@ -3,6 +3,45 @@
 All notable changes to outl are documented here.
 Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-06-05
+
+**Desktop client ships.**
+
+`outl-desktop` (Tauri 2 + Solid + Tailwind) lands as the third client alongside `outl-tui` and `outl-mobile`, sharing the same `outl-actions` surface, the same op log, and the same workspace on disk.
+Three new Rust crates (`outl-config`, `outl-theme`, `outl-shortcuts`) extract per-client config + palette + chord catalog out of the TUI so both clients converge on one source of truth; `@outl/shared` (`crates/outl-frontend-shared`) does the same for the Solid + DTO frontend code mobile and desktop both need.
+
+The MINOR bump is the desktop addition; CRDT, sidecar, and existing CLI/TUI/mobile contracts are unchanged.
+
+### Added
+
+- **`outl-desktop`** — Tauri 2 client for macOS, Linux, Windows. 2-pane layout (Sidebar / OutlineView with inline backlinks at the bottom, mirroring the TUI), mini-calendar + pinned + recent in the sidebar, `outl-exec` code-block execution, cross-platform FS watcher (`notify`) that emits `peer-ops-changed` so the frontend reloads when iCloud / Syncthing / shared FS drops a peer's `ops-*.jsonl`. Distributed as a **universal macOS dmg** (arm64 + x86_64 lipo-merged) via `brew install --cask outl-desktop@beta`.
+- **`outl-config`** — shared TOML config at `~/.config/outl/config.toml` (XDG on every OS — Windows routes through `dirs::config_dir()` to `%APPDATA%`). Read by TUI / CLI / desktop through the same `outl_config::load()` so a theme set in the desktop's Settings modal lights up in the TUI on the next launch.
+- **`outl-theme`** — palette catalog with the seven existing presets (`outl`, `default-dark`, `light`, `dracula`, `solarized-dark`, `nord`, `monokai`). TUI derives its `Theme::from_palette` from here; desktop ships the palette over the Tauri wire and writes CSS custom properties.
+- **`outl-shortcuts`** — `(chord → action)` catalog every client consumes. TUI translates `crossterm::KeyEvent` → `Chord`; desktop's `KeyboardEvent` adapter does the same. One binding change lights up on both clients.
+- **`outl-frontend-shared`** (`@outl/shared`) — pure TS+Solid lib with the `MarkdownInline` renderer, paste / autocomplete helpers, DTO types, and the typed `invoke<T>()` wrappers every client uses. Mobile already consumed these locally; promoted in this release.
+- **`PageMeta.pinned`** — the `pinned:: true` page property is now surfaced on `PageMeta` (matching `outl-md::index::PageEntry.pinned` exactly so the two never drift on which literals count as truthy). Sidebars on TUI + desktop pick it up.
+- **Backlinks navigable on desktop** — `j`/`k` extends past the outline's last block into the inline backlinks section; `Enter` opens the source page and parks the cursor on the referencing block. Mouse click does the same. Mirrors what the TUI already did.
+- **Workspace path fallback for `outl` with no args** — `outl_config::load().workspace.last` is consulted between `--workspace <DIR>` and the cwd, so the TUI lands on whatever workspace the desktop opened last with no flag.
+
+### Changed
+
+- **TUI sidebar chord** — `\` → `Ctrl+E` (mirroring desktop's `Cmd+Shift+E`, the VS Code "Show Explorer" convention).
+- **TUI backlinks chord** — `B` → `Ctrl+B` (mirroring desktop's `Cmd+Shift+B`; we kept `Cmd+B` reserved for the universal markdown "bold" chord in Insert mode).
+- **Sidebar + backlinks default to hidden** on the desktop now, matching the TUI's editor-hero defaults. Users opt the panes in with the chord.
+- **Docs** — new `docs/shortcuts.md` (action × client matrix, where each chord lives in the code), `docs/config.md` (full TOML schema + per-OS path), `docs/homebrew.md` covers the desktop cask install + first-launch Gatekeeper workaround for the unsigned dmg.
+
+### Fixed
+
+- **Windows config path** — `outl-config::paths::config_dir()` now branches through `dirs::config_dir()` on Windows so the config lands under `%APPDATA%\outl\` (not `%USERPROFILE%\.config\outl\`, which is not a Windows convention).
+- **`is_truthy` parity** — `outl_actions::page::is_truthy` no longer accepts `"pinned"` as a truthy literal; the set is now identical to `outl_md::index::is_truthy` (`true` / `yes` / `1` / `on`), so a hand-edited `.md` matches what the workspace index would also pick up.
+- **fs_watcher Windows test** — `non_utf8_filename_is_ignored` is gated with `#[cfg(unix)]` (uses `OsStringExt::from_vec`), and `watched_root_label` tests now use `std::env::current_dir()` as a platform-portable absolute path anchor instead of the hardcoded `/tmp/ws` literal (not absolute on Windows).
+- **Desktop outline scroll + narrow-window reflow** — body / `#root` now use `height: 100%` (was `min-height: 100vh`, which let the page grow with content and broke the height chain). `<main>` gained `min-w-0 min-h-0`; the AppShell grid template uses `minmax(0, 1fr)` instead of `1fr`. Same `min-width: auto` pitfall on both flex and grid axes; both unlocks pair.
+
+### CI / Release
+
+- **`desktop.yml`** — split into `check` (Linux, runs Clippy + Rust tests + Vitest + tsc + tauri bundle once) + `build` matrix (macOS arm64 + Windows x86_64 just compile + bundle). macOS x86_64 dropped from the PR matrix because the `macos-13` Intel runner pool is consistently depleted; release-time x86_64 binaries still ship via the universal dmg.
+- **`release.yml`** — adds `build_desktop` (universal macOS dmg on `macos-latest`) and a single anchor in the bump-tap step so `Casks/outl-desktop@beta.rb` rides alongside `Formula/outl@beta.rb` on every push to main.
+
 ## [0.5.3] — 2026-06-02
 
 **Unify backlinks, Insert-mode cross-block nav, anti-duplication policy.**
