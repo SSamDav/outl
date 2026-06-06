@@ -51,9 +51,9 @@ import {
   registerPickedCallback,
   setNativeSuggesterState,
 } from "../lib/native-suggester";
+import { Calendar } from "./Calendar";
 import { PageSwitcher } from "./PageSwitcher";
 import { PullToRefresh } from "./PullToRefresh";
-import { SwipeNavigator } from "./SwipeNavigator";
 import { SyncDot } from "./SyncDot";
 import { BlockRow } from "./BlockRow";
 import { EditToolbar } from "./EditToolbar";
@@ -83,6 +83,7 @@ export function Journal() {
   const [errorRetry, setErrorRetry] = createSignal<(() => void) | null>(null);
   const [stats] = createResource(workspaceStats);
   const [switcherOpen, setSwitcherOpen] = createSignal(false);
+  const [calendarOpen, setCalendarOpen] = createSignal(false);
   // When set, the delete-confirmation dialog is open. Holds the
   // block id we're about to delete + a descendant count for the
   // copy. Cleared on confirm or cancel.
@@ -113,9 +114,6 @@ export function Journal() {
   // `focus()` is called outside a tap event, so we focus this first
   // and let the real block's textarea steal focus once it mounts.
   let ghostInput: HTMLTextAreaElement | undefined;
-  // Navigation back-stack so a swipe from a `[[ref]]`-opened page
-  // returns to where we came from.
-  const [history, setHistory] = createSignal<PageView[]>([]);
   // Today's journal slug. Re-resolved on mount and whenever the app
   // returns to the foreground, so the affordance stays correct across a
   // midnight rollover (the app can sit open past midnight: "today"
@@ -125,31 +123,10 @@ export function Journal() {
   // independently and risking disagreement.
   const [todaySlugValue, setTodaySlugValue] = createSignal<string | null>(null);
 
-  /** True when the current view is not today's journal, so a
-   *  "back to today" jump would actually change something. */
-  function canJumpToday(): boolean {
-    const cur = view();
-    const t = todaySlugValue();
-    if (!cur || !t) return false;
-    return !(cur.page.kind === "journal" && cur.page.slug === t);
-  }
-
   function focusGhost() {
     // Must run synchronously inside the tap to keep iOS in
     // "keyboard mode".
     ghostInput?.focus({ preventScroll: true });
-  }
-
-  function pushHistory(v: PageView) {
-    setHistory((s) => [...s, v]);
-  }
-
-  function popHistory(): PageView | null {
-    const stack = history();
-    if (stack.length === 0) return null;
-    const head = stack[stack.length - 1];
-    setHistory(stack.slice(0, -1));
-    return head;
   }
 
   function applyView(v: PageView) {
@@ -706,6 +683,19 @@ export function Journal() {
     if (next) applyView(next);
   }
 
+  /**
+   * Calendar picked a day. The backend's `open_journal_for` opens-or-
+   * creates the journal page, so picking a day that has never been
+   * visited still lands on a fresh page ready for the user to type
+   * into — no "page doesn't exist" error.
+   */
+  async function handlePickDate(slug: string) {
+    setCalendarOpen(false);
+    haptic("light");
+    const next = await withError(() => openJournalFor(slug));
+    if (next) applyView(next);
+  }
+
   async function handleRefClick(target: string) {
     // One Tauri call — `openRef` runs the journal-vs-page decision
     // tree on the Rust side and creates the page if nothing exists,
@@ -714,12 +704,8 @@ export function Journal() {
     // regex, which surfaced `invalid date slug` toasts on inputs
     // like `[[2026-13-01]]` (regex shape OK, semantic parse fails).
     haptic("light");
-    const currentView = view();
     const next = await withError(() => openRef(target));
-    if (next) {
-      if (currentView) pushHistory(currentView);
-      applyView(next);
-    }
+    if (next) applyView(next);
   }
 
   async function handleTagClick(tag: string) {
@@ -728,34 +714,18 @@ export function Journal() {
     const target = tag.startsWith("#") ? tag.slice(1) : tag;
     if (!target) return;
     haptic("light");
-    const currentView = view();
     const next = await withError(() => openRef(target));
-    if (next) {
-      if (currentView) pushHistory(currentView);
-      applyView(next);
-    }
+    if (next) applyView(next);
   }
 
   async function handlePickPage(slug: string, kind: "page" | "journal") {
     setSwitcherOpen(false);
     haptic("light");
-    const currentView = view();
     const next =
       kind === "journal"
         ? await withError(() => openJournalFor(slug))
         : await withError(() => openPageBySlug(slug));
-    if (next) {
-      if (currentView) pushHistory(currentView);
-      applyView(next);
-    }
-  }
-
-  function handleBack() {
-    const prev = popHistory();
-    if (prev) {
-      haptic("light");
-      applyView(prev);
-    }
+    if (next) applyView(next);
   }
 
   /**
@@ -807,11 +777,11 @@ export function Journal() {
         class="z-30 shrink-0 border-b border-(--color-ios-divider)/30 bg-(--color-ios-bg)/95 px-4 pt-2 pb-3 backdrop-blur-xl dark:border-(--color-iosd-divider)/30 dark:bg-(--color-iosd-bg)/95"
         style="padding-top: max(env(safe-area-inset-top), 12px);"
       >
-          <div class="flex items-center justify-between gap-3">
-            <Show when={canJumpToday()}>
+          <div class="flex items-center justify-between gap-2">
+            <Show when={view() && view()!.page.kind !== "journal"}>
               <button
                 type="button"
-                aria-label="Back to today"
+                aria-label="Back to today's journal"
                 onClick={handleJumpToday}
                 class="-ml-1 shrink-0 rounded-full p-2 text-(--color-ios-accent) active:opacity-50 dark:text-(--color-iosd-accent)"
               >
@@ -845,6 +815,30 @@ export function Journal() {
                 onToday={handleJumpToday}
               />
             </Show>
+            <button
+              type="button"
+              aria-label="Calendar"
+              onClick={() => {
+                haptic("light");
+                setCalendarOpen(true);
+              }}
+              class="rounded-full p-2 active:opacity-50"
+            >
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="var(--color-ios-accent)"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="3" y="4" width="18" height="18" rx="3" />
+                <path d="M3 10h18M8 2v4m8-4v4" />
+              </svg>
+            </button>
             <button
               type="button"
               aria-label="Pages"
@@ -911,25 +905,6 @@ export function Journal() {
 
       <main class="ios-scroll flex-1 pb-32">
         <PullToRefresh onRefresh={handleRefresh}>
-        <SwipeNavigator
-          disabled={editingId() !== null}
-          onSwipeRight={() => {
-            if (view()?.page.kind === "journal") {
-              handlePrevDay();
-            } else if (history().length > 0) {
-              handleBack();
-            }
-          }}
-          onSwipeLeft={() => {
-            if (view()?.page.kind === "journal") {
-              handleNextDay();
-            } else if (history().length > 0) {
-              // No "forward" yet on page navigation; mirror back so
-              // users can swipe either direction to return.
-              handleBack();
-            }
-          }}
-        >
         <div class="min-h-[60vh]">
         <section class="mt-1 pb-1">
           <Show
@@ -1026,20 +1001,15 @@ export function Journal() {
               if (!link.source_page) return;
               haptic("light");
               const sp = link.source_page;
-              const currentView = view();
               const next =
                 sp.kind === "journal"
                   ? await withError(() => openJournalFor(sp.slug))
                   : await withError(() => openPageBySlug(sp.slug));
-              if (next) {
-                if (currentView) pushHistory(currentView);
-                applyView(next);
-              }
+              if (next) applyView(next);
             }}
           />
         </Show>
         </div>
-        </SwipeNavigator>
         </PullToRefresh>
 
         <Show when={stats()}>
@@ -1099,6 +1069,16 @@ export function Journal() {
         currentSlug={view()?.page.slug ?? null}
         onClose={() => setSwitcherOpen(false)}
         onPick={handlePickPage}
+      />
+
+      <Calendar
+        open={calendarOpen()}
+        selectedSlug={
+          view()?.page.kind === "journal" ? (view()?.page.slug ?? null) : null
+        }
+        todaySlug={todaySlugValue()}
+        onClose={() => setCalendarOpen(false)}
+        onPick={handlePickDate}
       />
 
       <ConfirmDialog
@@ -1170,48 +1150,45 @@ function JournalHeader(props: {
   onNext: () => void;
   onToday: () => void;
 }) {
-  const isToday = () => props.todaySlug !== null && props.todaySlug === props.slug;
+  const isToday = () =>
+    props.todaySlug !== null && props.todaySlug === props.slug;
   return (
     <div class="flex-1">
-      <div class="flex items-center gap-1.5 text-(--color-ios-text-secondary) dark:text-(--color-iosd-text-secondary)">
+      <div class="flex items-center justify-center gap-2">
         <button
           type="button"
           aria-label="Previous day"
           onClick={props.onPrev}
-          class="rounded-full p-1 active:opacity-50"
+          class="rounded-full p-1 text-(--color-ios-accent) active:opacity-50 dark:text-(--color-iosd-accent)"
         >
           <ChevronLeft />
         </button>
-        <p
-          class="cursor-pointer text-[11px] font-medium uppercase tracking-[0.08em]"
+        <h1
+          class="cursor-pointer whitespace-nowrap text-[19px] font-bold leading-tight tracking-tight tabular-nums active:opacity-60"
           onClick={props.onToday}
         >
-          <Show
-            when={isToday()}
-            fallback={
-              <>
-                Journal ·{" "}
-                <span class="text-(--color-ios-accent) dark:text-(--color-iosd-accent)">
-                  today
-                </span>
-              </>
-            }
-          >
-            Today
-          </Show>
-        </p>
+          {props.slug}
+        </h1>
         <button
           type="button"
           aria-label="Next day"
           onClick={props.onNext}
-          class="rounded-full p-1 active:opacity-50"
+          class="rounded-full p-1 text-(--color-ios-accent) active:opacity-50 dark:text-(--color-iosd-accent)"
         >
           <ChevronRight />
         </button>
       </div>
-      <h1 class="mt-0.5 text-[26px] font-bold leading-tight tracking-tight tabular-nums">
-        {props.slug}
-      </h1>
+      {/* Always rendered (just hidden when not today) so the header
+          keeps the same height across day navigation — otherwise the
+          whole outline below jumps by ~14px every time the user pages
+          past today, which reads as the header "dancing". */}
+      <p
+        class="mt-0.5 text-center text-[11px] font-medium uppercase tracking-[0.08em] text-(--color-ios-accent) dark:text-(--color-iosd-accent)"
+        classList={{ invisible: !isToday() }}
+        aria-hidden={!isToday()}
+      >
+        Today
+      </p>
     </div>
   );
 }
