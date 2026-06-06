@@ -1,4 +1,15 @@
 @import "tailwindcss";
+@import "@outl/shared/highlight/styles";
+
+/* Spring-ish ease curves used across the app. Apple's UIKit defaults
+   land somewhere between these two — `--ease-spring-out` is for sheets
+   coming in (overshoots a hair); `--ease-spring-in` settles back to
+   rest without bounce. Pure CSS approximation; switching to a real
+   spring solver would need JS rAF loops and isn't worth the cost. */
+:root {
+  --ease-spring-out: cubic-bezier(0.16, 1.08, 0.38, 1);
+  --ease-spring-in: cubic-bezier(0.32, 0.72, 0, 1);
+}
 
 @keyframes outl-spin {
   from { transform: rotate(0deg); }
@@ -12,7 +23,7 @@
 
 @keyframes outl-sheet-up {
   from {
-    transform: translateY(8%);
+    transform: translateY(12%);
     opacity: 0;
   }
   to {
@@ -22,26 +33,56 @@
 }
 
 .outl-fade-in {
-  animation: outl-fade-in 180ms ease-out;
+  animation: outl-fade-in 200ms var(--ease-spring-in);
 }
 
 .outl-sheet-up {
-  animation: outl-sheet-up 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  animation: outl-sheet-up 360ms var(--ease-spring-out);
 }
 
 @keyframes outl-toast-in {
   from {
-    transform: translateY(-12px);
+    transform: translateY(-14px) scale(0.96);
     opacity: 0;
   }
   to {
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
     opacity: 1;
   }
 }
 
 .outl-toast-in {
-  animation: outl-toast-in 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  animation: outl-toast-in 320ms var(--ease-spring-out);
+}
+
+@keyframes outl-skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Shimmer used by `<Skeleton />` placeholders during initial load.
+   Gradient sweeps across the row so users read it as "loading", not
+   "broken". */
+.outl-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(216, 208, 232, 0.4) 0%,
+    rgba(216, 208, 232, 0.7) 50%,
+    rgba(216, 208, 232, 0.4) 100%
+  );
+  background-size: 200% 100%;
+  animation: outl-skeleton-shimmer 1400ms ease-in-out infinite;
+}
+@media (prefers-color-scheme: dark) {
+  .outl-skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(56, 44, 84, 0.4) 0%,
+      rgba(56, 44, 84, 0.8) 50%,
+      rgba(56, 44, 84, 0.4) 100%
+    );
+    background-size: 200% 100%;
+  }
 }
 
 /* Subtle "press" feedback for native-feeling tap targets. */
@@ -53,6 +94,25 @@
 .outl-press:active {
   transform: scale(0.96);
   opacity: 0.7;
+}
+
+/* Accessibility: respect the OS-level "reduce motion" toggle. Apple
+   reviewers explicitly check that animations honor this. We kill the
+   keyframe animations and slow transitions; pressed-state feedback
+   stays so the user still sees something on tap. */
+@media (prefers-reduced-motion: reduce) {
+  .outl-fade-in,
+  .outl-sheet-up,
+  .outl-toast-in,
+  .outl-skeleton {
+    animation: none;
+  }
+  .outl-press {
+    transition: opacity 80ms ease-out;
+  }
+  .outl-press:active {
+    transform: none;
+  }
 }
 
 @theme {
@@ -90,6 +150,15 @@
   --color-iosd-destructive: #fb7185;
   --color-iosd-tabbar: rgba(21, 16, 31, 0.92);
   --color-iosd-tabbar-border: rgba(255, 255, 255, 0.18);
+
+  /* Chrome tokens — applied to floating capsules (header actions, edit
+     toolbar). Bear-style: rounded-full pills with a soft drop shadow
+     and subtle glass background. Light vs dark only differ on the
+     shadow alpha (dark needs more opacity to be visible). */
+  --radius-capsule: 9999px;
+  --shadow-capsule: 0 4px 16px rgba(12, 8, 20, 0.08);
+  --shadow-capsule-dark: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --blur-chrome: 24px;
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
@@ -139,6 +208,29 @@ textarea {
 
 textarea {
   resize: none;
+}
+
+/* Brand the caret + text selection with the accent purple. Tiny
+   detail that makes the editor feel like one of *our* apps the moment
+   the user taps in — instead of the default iOS blue cursor on a
+   default grey selection. */
+textarea,
+input {
+  caret-color: var(--color-ios-accent);
+}
+@media (prefers-color-scheme: dark) {
+  textarea,
+  input {
+    caret-color: var(--color-iosd-accent);
+  }
+}
+::selection {
+  background: color-mix(in srgb, var(--color-ios-accent) 25%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  ::selection {
+    background: color-mix(in srgb, var(--color-iosd-accent) 30%, transparent);
+  }
 }
 
 /* iOS momentum scroll polyfill */

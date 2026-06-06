@@ -1,6 +1,11 @@
 import { For, JSX, Show, onCleanup, onMount } from "solid-js";
 import type { BlockNode } from "@outl/shared/api/types";
 import { MarkdownInline } from "@outl/shared/markdown";
+import { HighlightedCode, detectFence } from "@outl/shared/highlight";
+
+function detectFenceText(text: string) {
+  return detectFence(text);
+}
 import { autoClosePair, autoDeletePair } from "@outl/shared/autocomplete";
 import { looksLikeOutline, utf16OffsetToCharOffset } from "@outl/shared/paste";
 import { haptic } from "../lib/haptics";
@@ -28,6 +33,8 @@ interface BlockRowProps {
   onIndent: (id: string) => void;
   onOutdent: (id: string) => void;
   onCreateAfter: (id: string) => void;
+  /** Open the block's contextual menu (long-press gesture). */
+  onContextMenu: (id: string) => void;
   /**
    * Flip the block's collapsed flag. Implemented by the parent so
    * the persistence path (Tauri → sidecar) is shared with every
@@ -89,13 +96,12 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
             props.onToggleTodo(props.block.id);
           }}
           onLongPress={() => {
-            // Distinct haptic so the user can tell something happened
-            // even when they're not looking at the checkbox: "success"
-            // (3-pulse) when we're about to *create* a TODO on a plain
-            // block, plain "medium" when we're cycling an existing
-            // TODO ↔ DONE ↔ none.
-            haptic(props.block.todo === null ? "success" : "medium");
-            props.onToggleTodo(props.block.id);
+            // iOS standard: long-press opens the contextual menu for
+            // the block. Toggling TODO stays available as a discrete
+            // action inside the menu (and as a tap on the checkbox
+            // when the block already has TODO/DONE state).
+            haptic("medium");
+            props.onContextMenu(props.block.id);
           }}
           onRefClick={props.onRefClick}
           onTagClick={props.onTagClick}
@@ -133,6 +139,7 @@ export function BlockRow(props: BlockRowProps): JSX.Element {
                 onOutdent={props.onOutdent}
                 onCreateAfter={props.onCreateAfter}
                 onToggleCollapse={props.onToggleCollapse}
+                onContextMenu={props.onContextMenu}
                 onRefClick={props.onRefClick}
                 onTagClick={props.onTagClick}
                 onTextareaMount={props.onTextareaMount}
@@ -268,30 +275,41 @@ function BlockBody(props: {
       <div class="min-w-0 flex-1">
         <Show
           when={props.editing}
-          fallback={
-            <p
-              class="break-words text-[17px] leading-[1.42]"
-              classList={{
-                "text-(--color-ios-text-tertiary) line-through dark:text-(--color-iosd-text-tertiary)":
-                  props.block.todo === "DONE",
-              }}
-            >
-              <Show
-                when={props.block.text.length > 0}
-                fallback={
-                  <span class="italic text-(--color-ios-text-tertiary) dark:text-(--color-iosd-text-tertiary)">
-                    Empty block
-                  </span>
-                }
-              >
-                <MarkdownInline
-                  tokens={props.block.tokens}
-                  onRefClick={props.onRefClick}
-                  onTagClick={props.onTagClick}
+          fallback={(() => {
+            const fence = detectFenceText(props.block.text);
+            if (fence) {
+              return (
+                <HighlightedCode
+                  language={fence.language}
+                  code={fence.body || " "}
                 />
-              </Show>
-            </p>
-          }
+              );
+            }
+            return (
+              <p
+                class="break-words text-[17px] leading-[1.42]"
+                classList={{
+                  "text-(--color-ios-text-tertiary) line-through dark:text-(--color-iosd-text-tertiary)":
+                    props.block.todo === "DONE",
+                }}
+              >
+                <Show
+                  when={props.block.text.length > 0}
+                  fallback={
+                    <span class="italic text-(--color-ios-text-tertiary) dark:text-(--color-iosd-text-tertiary)">
+                      Empty block
+                    </span>
+                  }
+                >
+                  <MarkdownInline
+                    tokens={props.block.tokens}
+                    onRefClick={props.onRefClick}
+                    onTagClick={props.onTagClick}
+                  />
+                </Show>
+              </p>
+            );
+          })()}
         >
           <EditableTextarea
             value={props.draftText()}
@@ -327,7 +345,7 @@ function CollapseTriangle(props: {
           e.stopPropagation();
           props.onToggle();
         }}
-        class="relative z-10 -my-1.5 -ml-1 flex h-[30px] w-[18px] shrink-0 items-center justify-center text-(--color-ios-text-tertiary) dark:text-(--color-iosd-text-tertiary)"
+        class="relative z-10 -my-1.5 flex h-[30px] w-[18px] shrink-0 items-center justify-center text-(--color-ios-text-tertiary) dark:text-(--color-iosd-text-tertiary)"
       >
         <span aria-hidden="true" class="text-[10px] leading-none">
           {props.collapsed ? "▶" : "▼"}
