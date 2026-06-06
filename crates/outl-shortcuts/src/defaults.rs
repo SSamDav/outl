@@ -36,6 +36,12 @@ fn shift_meta_ch(c: char) -> ChordSequence {
 fn meta_key(k: Key) -> ChordSequence {
     ChordSequence::chord(Chord::new(Modifiers::META, k))
 }
+fn shift_meta_key(k: Key) -> ChordSequence {
+    ChordSequence::chord(Chord::new(Modifiers::META | Modifiers::SHIFT, k))
+}
+fn ctrl_key(k: Key) -> ChordSequence {
+    ChordSequence::chord(Chord::new(Modifiers::CTRL, k))
+}
 fn pair(a: char, b: char) -> ChordSequence {
     ChordSequence::pair(Chord::ch(a), Chord::ch(b))
 }
@@ -66,7 +72,11 @@ pub fn default_bindings() -> Vec<Binding> {
         // ── Global chrome (OS-standard, work in every mode) ───────
         Binding::new(meta('p'), Global, Action::OpenPicker, "Open quick switcher"),
         Binding::new(ctrl('p'), Global, Action::OpenPicker, "Open quick switcher"),
-        Binding::new(meta('t'), Global, Action::OpenToday, "Open today's journal"),
+        // "Journal" mnemonic — `Cmd+J` opens today's journal. `Cmd+T`
+        // used to live here but conflicted with the muscle memory
+        // every outliner has: `T` for *task* / TODO. We freed `Cmd+T`
+        // for the ToggleTodo binding below.
+        Binding::new(meta('j'), Global, Action::OpenToday, "Open today's journal"),
         Binding::new(
             shift_meta_ch('e'),
             Global,
@@ -83,6 +93,55 @@ pub fn default_bindings() -> Vec<Binding> {
         Binding::new(meta('['), Global, Action::PrevDay, "Previous journal day"),
         Binding::new(meta(']'), Global, Action::NextDay, "Next journal day"),
         Binding::new(ctrl('c'), Global, Action::Quit, "Quit"),
+        // Toggle TODO/DONE.
+        // - Desktop: `Cmd+Enter` and `Cmd+T` (Global). Both fire
+        //   inside a textarea (Insert) and on a selected block
+        //   (Normal). `Cmd+T` mirrors the TUI's `Ctrl+T` and the
+        //   "T for task" muscle memory; `Cmd+Enter` is the "commit
+        //   the state of this row" gesture.
+        // - TUI: `Ctrl+Enter` and the legacy `Ctrl+T` in Normal mode.
+        Binding::new(
+            meta_key(Key::Enter),
+            Global,
+            Action::ToggleTodo,
+            "Toggle TODO / DONE",
+        ),
+        Binding::new(
+            meta('t'),
+            Global,
+            Action::ToggleTodo,
+            "Toggle TODO / DONE (T for task)",
+        ),
+        Binding::new(
+            ctrl_key(Key::Enter),
+            Normal,
+            Action::ToggleTodo,
+            "Toggle TODO / DONE (TUI)",
+        ),
+        Binding::new(
+            ctrl('t'),
+            Normal,
+            Action::ToggleTodo,
+            "Toggle TODO / DONE (TUI alt)",
+        ),
+        // Run the fenced code block under the cursor / focused
+        // block. Desktop: `Cmd+X` (X for e**x**ecute — Apple does
+        // the same in Shortcuts.app and Numbers' "Run script"). The
+        // TUI uses the `g x` chord which lives in `outl-tui/input/`
+        // for now — `Cmd` doesn't exist in crossterm so the catalog
+        // can't drive both surfaces with a single binding.
+        Binding::new(
+            meta('x'),
+            Global,
+            Action::RunCodeBlock,
+            "Run code block (Cmd+X)",
+        ),
+        Binding::new(
+            pair('g', 'x'),
+            Normal,
+            Action::RunCodeBlock,
+            "Run code block (TUI chord)",
+        ),
         // ── Inline markdown wrappers (Insert mode — textarea focused) ──
         //
         // Mirrors the convention every popular markdown editor
@@ -210,7 +269,7 @@ pub fn default_bindings() -> Vec<Binding> {
             "Commit + exit Insert",
         ),
         Binding::new(
-            meta_key(Key::Enter),
+            shift_meta_key(Key::Enter),
             Insert,
             Action::CommitAndContinue,
             "Commit + new block below",

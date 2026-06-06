@@ -36,7 +36,17 @@ A binding that only the TUI cares about still lives here (with `Mode::Normal` / 
 
 ## Adding a binding
 
-1. **Pick the mode honestly.** `Global` only if the chord must fire in every mode — chrome chords (`Cmd+P`, `Cmd+T`) yes; `j` / `k` no (those are `Normal`).
+> **Doc updates are part of the change, not a follow-up.** The
+> `doc-sync-guard.sh` hook (`PostToolUse:Edit`) now fires the moment
+> `defaults.rs`, `action.rs`, `outl-tui/src/input/*`, or the desktop
+> frontend's shortcut wiring (`shortcuts.ts`, `action-handlers.ts`,
+> `BlockRow.tsx`) is touched — it requires the matching CLAUDE.md
+> tables to update in the same edit. We learned this the hard way on
+> the `Cmd+T` → `Cmd+J` swap: the binding moved silently because the
+> hook only watched line counts, not the catalog file. Don't disable
+> the guard; treat the warning as a checklist item.
+
+1. **Pick the mode honestly.** `Global` only if the chord must fire in every mode — chrome chords (`Cmd+P`, `Cmd+J`) yes; `j` / `k` no (those are `Normal`).
 2. Append a `Binding { mode, chord, action, description }` to the relevant section of `default_bindings()`.
 3. Run `cargo test -p outl-shortcuts` — `no_duplicate_chord_in_same_mode` catches collisions; `every_binding_has_a_description` catches empty descriptions; `bindings_round_trip_via_serde` catches schema breakage.
 4. If the action is **new**, also extend [`Action`] (`src/action.rs`) in the same commit. Group it under the right "intent" section (chrome / navigation / editing / visual / code).
@@ -44,13 +54,16 @@ A binding that only the TUI cares about still lives here (with `Mode::Normal` / 
    - TUI: `crates/outl-tui/src/runtime/dispatch.rs` (or wherever the action switch lives).
    - Desktop: `crates/outl-desktop/src/lib/action-handlers.ts`.
    A client that doesn't need the action just doesn't add a handler — `lookup` returns `Some(Action::Foo)` and the dispatcher no-ops with a debug log.
-6. Update the help table in `crates/outl-desktop/CLAUDE.md` (and `docs/tui.md` if it's a TUI-relevant chord).
+6. **Update both user-visible tables in the same commit:**
+   - `crates/outl-desktop/CLAUDE.md` "OS-standard chrome" / "Block-editor chords" / "Inline markdown" — whichever the chord belongs to.
+   - `docs/tui.md` if the binding has a TUI counterpart.
+   - This `CLAUDE.md`'s mode-semantics example list if the chord is a load-bearing illustration (e.g. the `Cmd+B`-in-Insert vs. `Cmd+B`-in-Global rationale below).
 
 ## Mode semantics
 
 | Mode | Meaning | Subscribed by |
 |---|---|---|
-| `Global` | Always active. Chrome chords (`Cmd+P`, `Cmd+T`, `Cmd+,`). | Every client. |
+| `Global` | Always active. Chrome chords (`Cmd+P`, `Cmd+J`, `Cmd+T`, `Cmd+,`). | Every client. |
 | `Normal` | Vim Normal mode — outline navigation (`j`, `k`, `i`, `o`, `dd`). | TUI always; desktop when `vim_mode == true`. |
 | `Insert` | Inside a textarea / EditBuffer. Movement (`Up`, `Down`, `Left`, `Right`), commit (`Esc`), inline-markdown wrappers (`Cmd+B`, `Cmd+I`). | TUI + desktop. |
 | `Visual` | Range selection (vim Visual). | TUI; desktop when `vim_mode == true`. |
