@@ -13,6 +13,9 @@
     "@tauri-apps/api": "^2",
     "solid-js": "^1.9.3"
   },
+  "dependencies": {
+    "highlight.js": "^11.10.0"
+  },
   "devDependencies": {
     "@tauri-apps/api": "^2",
     "@types/node": "^20",
@@ -28,6 +31,8 @@
     "./api/commands": "./src/api/commands.ts",
     "./markdown": "./src/markdown/index.ts",
     "./paste": "./src/paste/index.ts",
-    "./autocomplete": "./src/autocomplete/index.ts"
+    "./autocomplete": "./src/autocomplete/index.ts",
+    "./highlight": "./src/highlight/index.ts",
+    "./highlight/styles": "./src/highlight/styles.css"
   }
 }
