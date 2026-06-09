@@ -49,6 +49,17 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
 
+# Cancel any in-flight mobile run as soon as a newer commit lands on
+# the same ref. Pushing two main commits in quick succession otherwise
+# produces two parallel iOS builds, each one happy to upload its own
+# IPA to TestFlight (the downstream `testflight` workflow uses
+# `cancel-in-progress: false` because a half-uploaded archive is hard
+# to roll back). Cancelling the mobile build itself is the cheaper
+# guard — the older commit never reaches the upload stage.
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rust-check:
     name: rust (fmt + clippy + test) — outl-mobile

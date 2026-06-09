@@ -33,6 +33,14 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Cancel an in-flight bench run when a newer push (or a manual
+# dispatch) supersedes it. The xlarge tier takes long enough that two
+# overlapping runs from quick consecutive merges burn a lot of runner
+# time for results that will be overwritten anyway.
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   bench-quick:
     # PR + push + manual + schedule all hit this job.

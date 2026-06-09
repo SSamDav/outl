@@ -42,11 +42,20 @@ permissions:
   actions: read   # download-artifact reaches into another workflow run
 
 concurrency:
-  # Serialize uploads per source commit. We don't cancel: a half-
-  # uploaded IPA is fine, but two concurrent altool uploads with the
-  # same CFBundleVersion is not.
-  group: testflight-${{ github.event.workflow_run.head_sha || github.sha }}
-  cancel-in-progress: false
+  # Cancel an in-flight upload when a newer one supersedes it on the
+  # same ref. Two commits to main in quick succession otherwise
+  # produce back-to-back TestFlight builds, each labelled with its
+  # parent commit's release notes — testers see the older build land
+  # last because altool finishes both. With cancel-in-progress: true
+  # the in-flight upload is killed mid-flight (altool returns
+  # non-zero, the upload state on App Store Connect is partial), and
+  # only the freshest mobile run reaches TestFlight. We accept the
+  # half-upload window: a duplicate CFBundleVersion is impossible
+  # because the build number scales with the beta tag (one tag per
+  # release run), and ASC silently rejects re-uploads of the same
+  # version anyway.
+  group: testflight-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   upload:

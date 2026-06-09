@@ -37,6 +37,14 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
 
+# Cancel the previous CI run when a newer commit lands on the same
+# ref. Status reported on `main` (and on a PR) is the one that matters
+# for the latest tip; the older fmt/clippy/test run for the parent
+# commit just burns runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   fmt:
     name: rustfmt

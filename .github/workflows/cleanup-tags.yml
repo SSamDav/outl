@@ -39,10 +39,14 @@ permissions:
   contents: write
 
 concurrency:
-  # Never run two cleanups at once; queue them instead of cancelling
-  # — we'd rather wait than skip a prune.
+  # Cancel an in-flight cleanup when a newer Release completes (or a
+  # workflow_dispatch fires). The prune is idempotent — every run
+  # recomputes "keep the 2 newest betas per base version" from
+  # scratch, so if we kill a cleanup mid-loop the next one finishes
+  # the job. Queueing both was the old behaviour, safer but wasted
+  # runner minutes on stale prune-state we were about to recompute.
   group: cleanup-tags
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   cleanup:
