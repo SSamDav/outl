@@ -87,6 +87,9 @@ Almost all of these are read-only; the one exception (`outl://daily/today`) lazi
 
 Useful pattern: tell Claude Desktop "you are the assistant for my second brain" and attach `outl://daily/today` so it sees the day's context without having to call a tool.
 
+> Looking to build a skill, slash command, or custom agent that pulls workspace context from outl?
+> See [MCP recipes](mcp-recipes.md) — pattern, tool-naming rules (direct vs. proxy), porting matrix across hosts (Claude Code / Claude Desktop / Cursor / Zed / Continue.dev / anything with an MCP client), and a worked `/standup` example.
+
 ### Prompts
 
 Slash-style shortcuts the host renders in the prompt picker:

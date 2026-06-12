@@ -21,6 +21,7 @@ outl takes the parts of [Roam Research][roam] and [Logseq][logseq] that work —
 | Change colors / write a theme | [Theming](theming.md) |
 | Script outl or plug it into Claude Code | [CLI](cli.md) |
 | Connect outl to Claude Desktop, Cursor, etc. | [MCP](mcp.md) |
+| Build an MCP-driven skill or slash command on top of outl | [MCP recipes](mcp-recipes.md) |
 | See where the project is going | [Roadmap](roadmap.md) |
 | Send a PR and know what reviewers look at | [Contributing & code review](contributing.md) |
 

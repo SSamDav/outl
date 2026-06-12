@@ -22,6 +22,7 @@
 
 * [CLI](cli.md)
 * [MCP](mcp.md)
+* [MCP recipes (skills & commands)](mcp-recipes.md)
 
 ## Format
 
