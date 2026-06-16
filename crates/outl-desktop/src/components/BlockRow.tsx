@@ -541,6 +541,12 @@ export function BlockRow(props: {
    *  Visual style so the user sees the contiguous band, not a single
    *  bright row at the cursor. */
   const isInVisual = () => props.visualSet?.has(props.block.id) ?? false;
+  /** This block is armed for a cut (`Cmd+X` in view mode), waiting
+   *  for the paste that will move it. Dim it so the user sees what's
+   *  on the block clipboard until they paste or cancel with `Esc`. */
+  const isPendingCut = () =>
+    appState.blockClipboard?.kind === "cut" &&
+    appState.blockClipboard.nodeId === props.block.id;
   const isInteractive = () => isEditing() || props.block.todo !== null;
 
   /** Outer row click — select without entering Insert. Lets the
@@ -560,6 +566,8 @@ export function BlockRow(props: {
     <div>
       <div
         class={`outl-row group relative flex items-start rounded-sm py-[3px] pr-2 ${
+          isPendingCut() ? "opacity-50 " : ""
+        }${
           isInVisual()
             ? "bg-(--color-outl-accent)/[0.18]"
             : isSelected()

@@ -50,11 +50,12 @@ use parking_lot::Mutex;
 use tauri::Manager;
 
 use crate::commands::{
-    create_block, current_workspace, date_title, delete_block, edit_block, get_settings, get_theme,
-    indent_block, list_all_pages, list_shortcut_bindings, list_themes, move_block_down,
-    move_block_up, next_day, open_journal_for, open_page_by_slug, open_ref, open_today_journal,
-    outdent_block, outl_emoji_search, paste_markdown_at, previous_day, reload_workspace,
-    resolve_ref, run_code_block, search_pages, search_persons, set_block_collapsed, set_workspace,
+    copy_block_markdown, create_block, current_workspace, date_title, delete_block, edit_block,
+    get_settings, get_theme, indent_block, list_all_pages, list_shortcut_bindings, list_themes,
+    move_block_after, move_block_down, move_block_up, next_day, open_journal_for,
+    open_page_by_slug, open_ref, open_today_journal, outdent_block, outl_emoji_search,
+    paste_block_after, paste_markdown_at, previous_day, reload_workspace, resolve_ref,
+    run_code_block, search_pages, search_persons, set_block_collapsed, set_workspace,
     today_slug_cmd, toggle_quote, toggle_todo, update_settings, workspace_stats,
 };
 use crate::state::AppState;
@@ -148,6 +149,9 @@ pub fn run() {
             outdent_block,
             move_block_up,
             move_block_down,
+            move_block_after,
+            copy_block_markdown,
+            paste_block_after,
             set_block_collapsed,
             paste_markdown_at,
             // Code execution

@@ -86,6 +86,14 @@ A binding that only the TUI cares about still lives here (with `Mode::Normal` / 
 
 If you find yourself wanting two different actions on the same chord across modes, the catalog already supports it — just add two `Binding` rows with different `mode` fields and the `no_duplicate_chord_in_same_mode` test will let them through.
 
+**`Cmd+X` / `Cmd+C` / `Cmd+V` are the "OS-native vs. structural" example:**
+
+- `Insert` mode → **no binding**. Inside a block editor the webview's native text cut / copy / paste must win, so the catalog deliberately stays silent and the dispatcher lets the keystroke through (a text-editing app that swallowed `Cmd+X` would be hostile — this revisited the old "X for execute" decision).
+- `Normal` (view) mode → `CutBlock` / `CopyBlock` / `PasteBlock` — act on the whole selected block + subtree. These are **`Normal`, not `Global`**: a `Global` binding would shadow the native text cut inside a textarea (the desktop's Insert→Global dispatch fallback). Keep them out of `Global`.
+- The desktop reaches `Normal` via its DOM-detected "nothing focused" state, so these fire in view mode **whether or not `vim_mode` is on** — they're view-mode gestures, not vim gestures.
+
+This is also why **`RunCodeBlock` is `Normal` `Cmd+Shift+X`**, not `Global` `Cmd+X`: it had to vacate `Cmd+X` (now cut) and stay out of `Insert` (where `Cmd+Shift+X` is `WrapStrike`) — `Normal` satisfies both, and keeps the Rust `lookup` (which, unlike the desktop dispatcher, has no mode-priority tiebreak) unambiguous.
+
 ## Wire format (Tauri / JSON)
 
 The desktop ships the whole binding table to the frontend on boot via the `list_shortcut_bindings` Tauri command (`crates/outl-desktop/src-tauri/src/commands/shortcuts.rs`).

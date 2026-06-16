@@ -160,7 +160,6 @@ Two of these chords also have **visible icon affordances** in a fixed bottom-lef
 | `Cmd/Ctrl+T` | Toggle TODO / DONE on the focused / selected block (T for **t**ask) |
 | `Cmd/Ctrl+Enter` | Toggle TODO / DONE on the focused / selected block (alt) |
 | `Cmd/Ctrl+Shift+Enter` | Commit + create a sibling block below |
-| `Cmd/Ctrl+X` | E**x**ecute the focused / selected code block (mirrors the TUI's `g x` chord) |
 | `Cmd/Ctrl+[` / `]` | Previous / next journal day |
 | `Cmd/Ctrl+Shift+E` | Toggle sidebar (mirrors VS Code's explorer chord) |
 | `Cmd/Ctrl+Shift+B` | Toggle backlinks panel |
@@ -190,7 +189,7 @@ Implementation lives in `lib/markdown-wrap.ts`: each handler reads `document.act
 | `Enter` | Insert a `\n` inside the current block (multi-line text) |
 | `Cmd/Ctrl+Shift+Enter` | Commit + create a sibling below + edit it |
 | `Cmd/Ctrl+T` / `Cmd/Ctrl+Enter` | Toggle TODO / DONE on this block |
-| `Cmd/Ctrl+X` | Run the code block (mirrors TUI's `g x`) |
+| `Cmd/Ctrl+X` / `C` / `V` | Native text cut / copy / paste — these chords are deliberately absent from the catalog in Insert mode, so the webview handles them. The **block** clipboard (cut/copy/paste a whole block) only fires in view mode; run-code moved to `Cmd+Shift+X` in view mode. |
 | `Tab` / `Shift-Tab` | Indent / outdent |
 | `Esc` / blur | Commit |
 | `Backspace` on empty | Delete the block |
@@ -222,7 +221,12 @@ This section captures only the **architectural decisions** a contributor needs t
 
 - **Char-cursor nudge is one shared handler.** All 10 char-cursor catalog entries (`x` `X` `D` `C` `s` `r` `~` `e` `f` `F`) point at `charCursorNudge`. One source of truth means the message can't drift between catalog entries.
 
-- **`p` / `P` paste handlers are not wired yet.** `Y` / `YankRange` fill `appState.yankRegister`, but pasting N blocks has a design call (siblings? children? after / before?) that's deliberately deferred.
+- **Block clipboard (`Cmd+X` / `Cmd+C` / `Cmd+V` in view mode) is mode-aware and identity-preserving.** The chords live in the catalog only in **Normal** mode, so inside a textarea (Insert) the webview's native text cut / copy / paste fires untouched — the dispatcher never sees them. In view mode they act on the whole selected block + subtree through `appState.blockClipboard` (a discriminated `{ kind: "cut", nodeId, pageId } | { kind: "copy", markdown } | null`, distinct from the vim `yankRegister`):
+  - **Cut** marks the block to *move by id*; the paste calls `move_block_after` → `outl_actions::block::move_after` → a single `Op::Move`, so the block keeps its id and every `((blk-…))` ref / backlink survives. A pending cut dims the row (`BlockRow.isPendingCut()`); `Esc` (a Normal-mode binding routed to `ExitInsert`) cancels it.
+  - **Copy** snapshots the subtree as markdown via `copy_block_markdown` → `outl_actions::render_block_md` (the same projection `render_page_md` writes to disk); the paste re-ingests through `paste_block_after` → `paste_markdown` (`PasteAnchor::AfterBlock`) and mints fresh ids — a duplicate, not a move.
+  - A cut is **consumed** by its paste (clipboard cleared, selection follows the moved block); a copy **persists** so it can be pasted repeatedly. A paste that would drop the block inside its own subtree is rejected by `move_after` (`WouldCreateCycle`) and surfaces as a status-line nudge.
+  - Because cut+paste is just `Op::Move`, pasting onto a block on another page moves it **across pages**; the command re-renders both the source and destination `.md` (it captures `enclosing_page_id` before the move).
+  - **`p` / `P` (vim paste) are still not wired** — they'd read the vim `yankRegister` (block *text*), a separate register from the block clipboard; deferred until that text-vs-structure split earns a design call.
 
 - **Path to enable char-cursor ops.** Add a visible Normal-mode caret painted by `<BlockRow />` (model change), then move the 10 blocked handlers to real implementations. Separate PR.
 

@@ -131,16 +131,24 @@ pub fn default_bindings() -> Vec<Binding> {
             "Toggle TODO / DONE (TUI alt)",
         ),
         // Run the fenced code block under the cursor / focused
-        // block. Desktop: `Cmd+X` (X for e**x**ecute — Apple does
-        // the same in Shortcuts.app and Numbers' "Run script"). The
-        // TUI uses the `g x` chord which lives in `outl-tui/input/`
-        // for now — `Cmd` doesn't exist in crossterm so the catalog
-        // can't drive both surfaces with a single binding.
+        // block. Desktop: `Cmd+Shift+X` in **Normal** (view) mode —
+        // you run the block you have selected, not one you're
+        // mid-edit on. `Cmd+X` used to live here ("X for execute"),
+        // but in a text-editing app the OS-wide *cut* semantics have
+        // to win: `Cmd+X` is now `CutBlock` (Normal) / native text
+        // cut (Insert). Binding RunCodeBlock to Normal (not Global)
+        // keeps it from shadowing the native cut inside a textarea
+        // and leaves `Cmd+Shift+X` = `WrapStrike` untouched in Insert
+        // (mode-specific resolution: Insert wins there, Normal here).
+        // The TUI uses the `g x` chord which lives in
+        // `outl-tui/input/` for now — `Cmd` doesn't exist in
+        // crossterm so the catalog can't drive both surfaces with a
+        // single binding.
         Binding::new(
-            meta('x'),
-            Global,
+            shift_meta_ch('x'),
+            Normal,
             Action::RunCodeBlock,
-            "Run code block (Cmd+X)",
+            "Run code block (Cmd+Shift+X)",
         ),
         Binding::new(
             pair('g', 'x'),
@@ -378,6 +386,39 @@ pub fn default_bindings() -> Vec<Binding> {
             Normal,
             Action::DeleteBlock,
             "Delete block (chord)",
+        ),
+        // ── Block move + clipboard (Normal / view mode) ───────────
+        //
+        // Reorder the selected block among its siblings with
+        // `Cmd+Shift+↑/↓` (Notion / Logseq muscle memory), and
+        // cut / copy / paste a whole block + its subtree with the
+        // OS-native `Cmd+X/C/V`. These are **Normal-mode** bindings
+        // so they never shadow the native text cut / copy / paste
+        // inside a block editor (Insert mode, where the chord isn't
+        // in the catalog and the keystroke reaches the textarea).
+        Binding::new(
+            shift_meta_key(Key::Up),
+            Normal,
+            Action::MoveBlockUp,
+            "Move block up",
+        ),
+        Binding::new(
+            shift_meta_key(Key::Down),
+            Normal,
+            Action::MoveBlockDown,
+            "Move block down",
+        ),
+        Binding::new(meta('x'), Normal, Action::CutBlock, "Cut block"),
+        Binding::new(meta('c'), Normal, Action::CopyBlock, "Copy block"),
+        Binding::new(meta('v'), Normal, Action::PasteBlock, "Paste block"),
+        // `Esc` in view mode cancels a pending cut (snaps the dimmed
+        // block back). Reuses `ExitInsert` — a no-op blur otherwise,
+        // since Normal mode has no focused textarea.
+        Binding::new(
+            key(Key::Esc),
+            Normal,
+            Action::ExitInsert,
+            "Cancel pending cut",
         ),
         Binding::new(ch('c'), Normal, Action::ToggleCollapsed, "Fold / unfold"),
         Binding::new(

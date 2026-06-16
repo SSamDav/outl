@@ -114,6 +114,29 @@ pub fn render_page_md(workspace: &Workspace, page_root: NodeId) -> String {
     render(&page)
 }
 
+/// Render the block `node` and its subtree to clean outl markdown as
+/// a single top-level bullet (with its descendants nested under it).
+///
+/// This is the "copy block" projection: the desktop's `Cmd+C` in view
+/// mode hands the result to the clipboard, and the matching paste
+/// re-ingests it through the same `paste_markdown` pipeline external
+/// clipboard text uses — so a copy duplicates the subtree with fresh
+/// ids. Reuses the exact projection [`render_page_md`] writes to disk,
+/// so a copied block reads identically to how it lives in the `.md`.
+pub fn render_block_md(workspace: &Workspace, node: NodeId) -> String {
+    let block = OutlineNode {
+        text: workspace.block_text(node).unwrap_or_default(),
+        properties: Vec::new(),
+        children: build_outline(workspace, node),
+    };
+    let page = ParsedPage {
+        properties: Vec::new(),
+        blocks: vec![block],
+        warnings: Vec::new(),
+    };
+    render(&page)
+}
+
 /// Best-effort atomic write of `contents` to `path`, creating parents
 /// as needed.
 pub fn write_md_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
