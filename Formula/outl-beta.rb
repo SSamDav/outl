@@ -6,9 +6,9 @@
 # them.
 #
 # Values committed here are bootstrap placeholders: `version "0.0.0"`
-# and zeroed SHAs make `brew install outl@beta` fail loudly until the
+# and zeroed SHAs make `brew install outl-beta` fail loudly until the
 # first release fires. They become real on the next push to `main`.
-class OutlATBeta < Formula
+class OutlBeta < Formula
   desc "Local-first outliner with CRDT sync (beta channel — every push to main)"
   homepage "https://outl.app"
   version "0.6.0-beta.67"
@@ -33,7 +33,7 @@ class OutlATBeta < Formula
   end
 
   # Beta and stable share the same `outl` binary name. Refuse to install
-  # both side-by-side — `brew unlink outl` (or `outl@beta`) before
+  # both side-by-side — `brew unlink outl` (or `outl-beta`) before
   # switching channels.
   conflicts_with "outl", because: "both install the `outl` binary"
 
