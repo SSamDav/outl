@@ -5,7 +5,9 @@ Today: **Logseq** and **Roam**.
 Tomorrow: Bear, Obsidian, Notion, any markdown-shaped graph.
 
 Every importer in this directory **must follow the same pipeline**.
-The pipeline exists because each step has an owner upstream — if a new importer reimplements any of them, the next contributor (or the same one six months later) will silently regress one of the coercions and the user is the one who hits the divergence.
+The pipeline exists because each step has an owner upstream —
+if a new importer reimplements any of them,
+the next contributor (or the same one six months later) will silently regress one of the coercions and the user is the one who hits the divergence.
 
 ## The canonical pipeline
 
@@ -85,7 +87,8 @@ Everything else routes through the shared primitives above.
 ## Anti-patterns (don't do)
 
 - ❌ Reimplement `\r\n` normalization, `id::` stripping, long-form date rewriting, or Roam/GitHub token conversion.
-  **Step 1 owns all of that.** Adding it again means the next fix has to land in two places.
+  **Step 1 owns all of that.**
+  Adding it again means the next fix has to land in two places.
 - ❌ Call `outl_md::reconcile::reconcile_md` for a fresh file from an importer.
   Use `ingest_md_file` so the page node materializes.
 - ❌ Mint a page id with `NodeId::new()` for an imported file.
@@ -97,5 +100,7 @@ Everything else routes through the shared primitives above.
 
 ## When the shared primitives don't cover something
 
-If your importer needs a coercion that isn't in `paste::normalize_external_syntax` **and** it's plausibly useful to clipboard paste too (any other format emitting the same construct), **add it to `paste::normalize` upstream** and call it from here, rather than forking.
+If your importer needs a coercion that isn't in `paste::normalize_external_syntax` **and** it's plausibly useful to clipboard paste too (any other format emitting the same construct),
+**add it to `paste::normalize` upstream** and call it from here,
+rather than forking.
 The Shared primitives catalog in the root `CLAUDE.md` is where that decision is documented.

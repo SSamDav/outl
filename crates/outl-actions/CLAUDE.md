@@ -95,9 +95,11 @@ The historical "auto-preserve prefix" behaviour was removed because it made `TOD
 
 ## What this crate does NOT own
 
-- **UI state.** Selections, modes, keymaps, and the undo stack for **in-flight text editing** (per-keystroke history inside an uncommitted draft) live in the clients.
+- **UI state.**
+  Selections, modes, keymaps, and the undo stack for **in-flight text editing** (per-keystroke history inside an uncommitted draft) live in the clients.
   Committed-mutation undo is different: the bounded snapshot stacks + `.md` restore live here in `history` so every GUI shares one engine.
-- **In-flight outline AST.** When the user is typing into a buffer that hasn't been parsed yet, the manipulation happens on `Vec<OutlineNode>` via `outl_md::outline_ops` (re-exported through the `outl-tui/src/outline_ops.rs` shim).
+- **In-flight outline AST.**
+  When the user is typing into a buffer that hasn't been parsed yet, the manipulation happens on `Vec<OutlineNode>` via `outl_md::outline_ops` (re-exported through the `outl-tui/src/outline_ops.rs` shim).
   We don't pull that up because it's not workspace-grounded — it's a stage *before* ops exist.
   It lives in `outl-md` because the mobile client also needs it, but no `Workspace` is touched, so it stays out of `outl-actions`.
 - **Storage backends.** `JsonlStorage`, future `ChronDbStorage` implement `outl_core::Storage` and live in the binary that needs them.
@@ -106,12 +108,15 @@ The historical "auto-preserve prefix" behaviour was removed because it made `TOD
 
 This is the **shared layer**.
 Every client (TUI, mobile, future desktop) consumes it — and they all consume the same struct, the same constants, the same policy.
-Two parallel implementations of the same concept across clients is the bug we paid to delete (see the `outl_md::index::Backlink` → `outl_actions::Backlink` consolidation, where policy drifted on self-references and the user was the one who caught it).
+Two parallel implementations of the same concept across clients is the bug we paid to delete,
+see the `outl_md::index::Backlink` → `outl_actions::Backlink` consolidation,
+where policy drifted on self-references and the user was the one who caught it.
 
 When adding a new operation here:
 
 1. **Search first.** `rg` for the symbol across `outl-core`, `outl-md`, and this crate before writing it.
-2. **Promote, don't fork.** If a client crate already has a helper for the same concept, lift it here (and delete the client copy) — even if it's a small refactor.
+2. **Promote, don't fork.**
+   If a client crate already has a helper for the same concept, lift it here (and delete the client copy) — even if it's a small refactor.
    The `flatten_backlink_subtree` → `flatten_subtree_paths` move from `outl-md` is the canonical pattern: one owner, every client wraps.
 3. **Generalize the parameter set** when migrating.
    The Backlink rewrite added `source_block: OutlineNode` + `source_path` so *both* the mobile linear renderer and the TUI subtree renderer could share the same struct.

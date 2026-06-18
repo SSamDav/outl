@@ -21,31 +21,39 @@ Don't skim — read.
 These are the non-negotiables.
 Violating any one breaks user trust irreversibly.
 
-1. **Op log is source of truth.** All mutations go through `Op` → `apply_op` → log.
+1. **Op log is source of truth.**
+   All mutations go through `Op` → `apply_op` → log.
    The materialized tree and `.md` files are projections.
    Never edit `.md` to "fix" state.
 
-2. **Markdown stays 100% clean.** No `id::`, no UUID inline, no HTML comments, nothing.
+2. **Markdown stays 100% clean.**
+   No `id::`, no UUID inline, no HTML comments, nothing.
    IDs live ONLY in the `.outl` sidecar (JSON file next to the `.md`, e.g. `pages/foo.outl`).
-   The sidecar is **not** a dotfile — iCloud Documents drops dotted paths during cross-device sync, which silently breaks multi-device workspaces.
+   The sidecar is **not** a dotfile, because iCloud Documents drops dotted paths during cross-device sync and silently breaks multi-device workspaces.
    Same rule applies to `ops/`.
 
-3. **CRDT follows Kleppmann 2022 literally.** `do_op` / `undo_op` / `apply_op` / `creates_cycle` must match the paper.
+3. **CRDT follows Kleppmann 2022 literally.**
+   `do_op` / `undo_op` / `apply_op` / `creates_cycle` must match the paper.
    100% coverage on these four is non-negotiable.
 
-4. **Move that creates a cycle is a no-op on the materialized tree, but the op still goes into the log.** Removing it breaks correctness of future reordering.
+4. **Move that creates a cycle is a no-op on the materialized tree, but the op still goes into the log.**
+   Removing it breaks correctness of future reordering.
 
-5. **Storage is a trait, not a struct.** `JsonlStorage` is the only persistent impl; tests use `MemoryStorage`.
+5. **Storage is a trait, not a struct.**
+   `JsonlStorage` is the only persistent impl, and tests use `MemoryStorage`.
    Anything that wants to persist ops goes through `dyn Storage`.
-   No second persistent backend lands without an issue + RFC first — divergence between storages is exactly what we paid to remove in 0.5.0.
+   No second persistent backend lands without an issue + RFC first, because divergence between storages is exactly what we paid to remove in 0.5.0.
 
-6. **Delete is `Move(node, TRASH_ROOT)`, not physical removal.** Simplifies the algorithm and preserves history.
+6. **Delete is `Move(node, TRASH_ROOT)`, not physical removal.**
+   Simplifies the algorithm and preserves history.
 
-7. **Any state that must converge between devices goes through the op log.** If two users (or one user on two devices) can disagree about a value and you want them to reconcile, the state belongs in an `Op` — *never* in a shared file with last-write-wins semantics.
+7. **Any state that must converge between devices goes through the op log.**
+   If two users (or one user on two devices) can disagree about a value and you want them to reconcile, the state belongs in an `Op`, *never* in a shared file with last-write-wins semantics.
    The op log gives each actor its own `ops-<actor>.jsonl`, lets iCloud / Syncthing / shared FS sync per-file (no merge conflicts), and replays through the CRDT with HLC ordering for deterministic convergence.
    Writing the state into the sidecar (or any single shared file) bypasses all of that and loses concurrent writes silently.
-   **Default position: model it as an Op.** `Op::SetCollapsed` for the fold flag is the canonical example.
-   The sidecar carries only **structural matching metadata** (ids, position, content hash, ref handle) — it is not a sync surface.
+   **Default position: model it as an Op.**
+   `Op::SetCollapsed` for the fold flag is the canonical example.
+   The sidecar carries only **structural matching metadata** (ids, position, content hash, ref handle), not a sync surface.
 
 ## Repo layout
 
@@ -95,7 +103,8 @@ The TUI's `outline_ops.rs` is the one deliberate exception (it manipulates an in
 ## Shared frontend: `@outl/shared` (`outl-frontend-shared`)
 
 The same "one owner, every client wraps" policy applies on the TS side.
-**`crates/outl-frontend-shared/`** is the Solid + TypeScript library every GUI client (`outl-mobile`, `outl-desktop`) consumes for pieces that are pure, stateless, and identical between clients (renderers like `<MarkdownInline />`, helpers like `looksLikeOutline` / `detectRefContext`, DTO interfaces, typed `invoke<T>()` wrappers).
+**`crates/outl-frontend-shared/`** is the Solid + TypeScript library every GUI client (`outl-mobile`, `outl-desktop`) consumes for pieces that are pure, stateless, and identical between clients.
+Examples: renderers like `<MarkdownInline />`, helpers like `looksLikeOutline` / `detectRefContext`, DTO interfaces, typed `invoke<T>()` wrappers.
 
 Resolution: bun workspaces in the repo root `package.json` deduplicate `solid-js` / `@tauri-apps/api` across the lib + every client.
 **Rule of thumb (TS):** before writing a helper in `outl-mobile/src/lib/` or `outl-desktop/src/lib/`, search `crates/outl-frontend-shared/src/`.
@@ -116,13 +125,16 @@ The rule, past incidents, and what to do when a primitive doesn't exist yet live
 - **Specialized agents** (invoke proactively when their `When to use` matches):
   `crdt-invariant-checker`, `paper-verifier`, `markdown-roundtrip-tester`, `refactor-architect`, `doc-keeper`.
   Mandates live under `.claude/agents/`.
-- **Documentation discipline.** When your PR touches a workflow, slash command, hook, public API, sidecar, op-log format, or shortcut, the matching docs update in the *same* PR.
+- **Documentation discipline.**
+  When your PR touches a workflow, slash command, hook, public API, sidecar, op-log format, or shortcut, the matching docs update in the *same* PR.
   Full "if you changed X, update Y" checklist lives in [`docs/contributing.md` → Keep docs in sync](docs/contributing.md#keep-docs-in-sync-with-code).
-- **One owner per fact.** Tables (shortcuts, CLI subcommands, config keys, op variants) live in `docs/*.md`; `CLAUDE.md` files link, never duplicate.
+- **One owner per fact.**
+  Tables (shortcuts, CLI subcommands, config keys, op variants) live in `docs/*.md`, and `CLAUDE.md` files link, never duplicate.
   See [`docs/contributing.md` → One owner per fact](docs/contributing.md#one-owner-per-fact--link-dont-duplicate) for the canonical-home map.
 - **Markdown style:** semantic line breaks (one sentence per line, no column reflow).
   Full rule in [`docs/contributing.md` → Markdown / documentation style](docs/contributing.md#markdown--documentation-style).
-- **File size discipline.** The `file-size-guard.sh` PostToolUse hook nudges at 600 lines and stops at 900.
+- **File size discipline.**
+  The `file-size-guard.sh` PostToolUse hook nudges at 600 lines and stops at 900.
   When it fires, invoke the `refactor-architect` agent.
 - **`cargo doc` is part of CI** with `RUSTDOCFLAGS=-D warnings`.
   Run `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` before reporting "done" on any patch that adds or changes module-level doc comments (`//!` blocks) — `/check` does not include this today.
@@ -160,7 +172,10 @@ Don't add code for these unless explicitly asked:
 - `ChronDbStorage` backend (issue #1, tracked publicly)
 - Android mobile build (only iOS today; Android needs an `NSMetadataQuery` equivalent)
 - Per-page op log shards ([`docs/sync.md` Part 2 — Phase A](docs/sync.md#phase-a--per-page-op-log-shards-for-10k-pages); only land it when the single-jsonl-per-device layout hits the 10k-page wall)
-- Character cursor inside the selected block in desktop Normal mode (TUI-only today; the desktop's vim mode has only a selected block id, so the char-level vim ops `x`/`X`/`D`/`C`/`s`/`r`/`f`/`F`/`~`/`e` surface a status-line nudge instead of firing — see `outl-desktop/CLAUDE.md` → "Vim parity")
+- Character cursor inside the selected block in desktop Normal mode.
+  TUI-only today.
+  The desktop's vim mode has only a selected block id, so the char-level vim ops `x`/`X`/`D`/`C`/`s`/`r`/`f`/`F`/`~`/`e` surface a status-line nudge instead of firing.
+  See `outl-desktop/CLAUDE.md` → "Vim parity".
 
 ## Coding conventions
 
@@ -172,8 +187,10 @@ Don't add code for these unless explicitly asked:
 - No `unsafe` in `outl-core` without documented justification.
 - Variable names, function names, doc comments: **English** (global audience).
 - User-facing strings (CLI help, TUI labels): English for now (i18n later).
-- **Conventional Commits are load-bearing.** Use `feat:`, `fix:`, `perf:`, `docs:`, `refactor:`, `chore:`, `test:`, `build:`, `ci:` on every commit (and on PR merge commits).
-  The Mobile pipeline generates TestFlight release notes by feeding the commit log since the last tag into `conventional-changelog-cli`; commits without a prefix all fall into a single "Other changes" bucket on TestFlight, so the user loses the per-build context.
+- **Conventional Commits are load-bearing.**
+  Use `feat:`, `fix:`, `perf:`, `docs:`, `refactor:`, `chore:`, `test:`, `build:`, `ci:` on every commit (and on PR merge commits).
+  The Mobile pipeline generates TestFlight release notes by feeding the commit log since the last tag into `conventional-changelog-cli`.
+  Commits without a prefix all fall into a single "Other changes" bucket on TestFlight, so the user loses the per-build context.
   If a commit doesn't fit a type, prefer `chore:` over no prefix.
 
 Full review policy (Rust quality, hot paths, architecture, simplicity, testing) lives in [`docs/contributing.md`](docs/contributing.md).

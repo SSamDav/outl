@@ -27,21 +27,37 @@ A binding that only the TUI cares about still lives here (with `Mode::Normal` / 
 
 ## What this crate owns
 
-- **[`Action`]** — every named operation outl performs in response to a key. Tagged-union serde (`{"kind": "OpenToday"}`) so the desktop frontend can `switch` on a string instead of an arbitrary integer.
+- **[`Action`]** — every named operation outl performs in response to a key.
+  Tagged-union serde (`{"kind": "OpenToday"}`) so the desktop frontend can `switch` on a string instead of an arbitrary integer.
 - **[`Chord`] / [`ChordSequence`]** — modifier-prefixed key combos, expressed independently of any input library so `crossterm::KeyEvent` (TUI) and `KeyboardEvent` (browser DOM) can both map into them.
 - **[`Mode`]** — which modal state a binding applies to. `Global` matches everywhere; `Normal` / `Insert` / `Visual` / `Overlay` are the vim modes (desktop subscribes only while `settings.vim_mode == true`).
 - **[`Binding`]** — `(mode, chord, action, description)` row.
   The description is what the help overlay displays — keep it short and verb-led ("Open today's journal", not "This shortcut opens today's journal in the current window").
-- **[`default_bindings`]** — the canonical table. Hand-curated, ordered for help-overlay readability.
-- **[`bindings_for_mode`] / [`lookup`]** — query helpers. `lookup` is `O(n)` over the table; the table is small (under 100 entries today) so we don't bother with a hashmap. **`lookup` prefers a mode-specific binding over a `Global` one** for the same chord — it can't rely on table order because the `Global` chrome rows are listed first for help-overlay readability, so a naive first-match would resolve every dual-bound chord (e.g. `Cmd+Shift+X` → `WrapStrike` in Insert vs. `RunCodeBlock` in Global) to its `Global` action even inside the overriding mode.
+- **[`default_bindings`]** — the canonical table.
+  Hand-curated, ordered for help-overlay readability.
+- **[`bindings_for_mode`] / [`lookup`]** — query helpers.
+  `lookup` is `O(n)` over the table; the table is small (under 100 entries today) so we don't bother with a hashmap.
+  **`lookup` prefers a mode-specific binding over a `Global` one** for the same chord — it can't rely on table order because the `Global` chrome rows are listed first for help-overlay readability,
+  so a naive first-match would resolve every dual-bound chord (e.g. `Cmd+Shift+X` → `WrapStrike` in Insert vs. `RunCodeBlock` in Global) to its `Global` action even inside the overriding mode.
 
 ## What this crate does NOT own
 
-- ❌ Handlers. Each client maps `Action -> {do_something}` itself. The TUI's `App::dispatch` and the desktop's `lib/action-handlers.ts` are the dispatchers; this crate doesn't know how a "commit insert buffer" actually commits.
-  > **Handler behaviour contracts** (e.g. `FoldAll` skipping leaves, `UnfoldAll` walking the full tree, `DeleteRange` iterating bottom-up) live in the per-client CLAUDE.md (`outl-tui/CLAUDE.md`, `outl-desktop/CLAUDE.md`) under their vim / mode sections — and in `docs/tui.md` / `docs/shortcuts.md` for user-facing copy. This file owns *which `Action` exists*; the *what the handler does* is a per-client concern documented next to the dispatcher. The `doc-sync-guard` hook flags edits to `action-handlers.ts` here as a heuristic — when the change is purely how the handler dispatches (not a new chord or `Action` variant), the per-client doc is the right place to land the contract, not this file.
-- ❌ Input adapters. `crossterm::KeyEvent → Chord` lives in `outl-tui`; `KeyboardEvent → Chord` lives in `outl-desktop/src/lib/shortcuts.ts`. Both produce a [`Chord`] this crate resolves.
-- ❌ User-level overrides (rebinding `i` to `a`). When that ships, it'll go through the same `Vec<Binding>` shape — a user override is just a different source list fed into the same `lookup` algorithm.
-- ❌ OS-specific chord rewriting (`Cmd` ↔ `Ctrl`). Each client decides which physical key its `Chord::ctrl(c)` corresponds to on the running OS.
+- ❌ Handlers.
+  Each client maps `Action -> {do_something}` itself.
+  The TUI's `App::dispatch` and the desktop's `lib/action-handlers.ts` are the dispatchers; this crate doesn't know how a "commit insert buffer" actually commits.
+  > **Handler behaviour contracts** (e.g. `FoldAll` skipping leaves, `UnfoldAll` walking the full tree, `DeleteRange` iterating bottom-up)
+  > live in the per-client CLAUDE.md (`outl-tui/CLAUDE.md`, `outl-desktop/CLAUDE.md`) under their vim / mode sections,
+  > and in `docs/tui.md` / `docs/shortcuts.md` for user-facing copy.
+  > This file owns *which `Action` exists*; the *what the handler does* is a per-client concern documented next to the dispatcher.
+  > The `doc-sync-guard` hook flags edits to `action-handlers.ts` here as a heuristic —
+  > when the change is purely how the handler dispatches (not a new chord or `Action` variant), the per-client doc is the right place to land the contract, not this file.
+- ❌ Input adapters.
+  `crossterm::KeyEvent → Chord` lives in `outl-tui`; `KeyboardEvent → Chord` lives in `outl-desktop/src/lib/shortcuts.ts`.
+  Both produce a [`Chord`] this crate resolves.
+- ❌ User-level overrides (rebinding `i` to `a`).
+  When that ships, it'll go through the same `Vec<Binding>` shape — a user override is just a different source list fed into the same `lookup` algorithm.
+- ❌ OS-specific chord rewriting (`Cmd` ↔ `Ctrl`).
+  Each client decides which physical key its `Chord::ctrl(c)` corresponds to on the running OS.
 
 ## Adding a binding
 
@@ -58,7 +74,8 @@ A binding that only the TUI cares about still lives here (with `Mode::Normal` / 
 1. **Pick the mode honestly.** `Global` only if the chord must fire in every mode — chrome chords (`Cmd+P`, `Cmd+J`) yes; `j` / `k` no (those are `Normal`).
 2. Append a `Binding { mode, chord, action, description }` to the relevant section of `default_bindings()`.
 3. Run `cargo test -p outl-shortcuts` — `no_duplicate_chord_in_same_mode` catches collisions; `every_binding_has_a_description` catches empty descriptions; `bindings_round_trip_via_serde` catches schema breakage.
-4. If the action is **new**, also extend [`Action`] (`src/action.rs`) in the same commit. Group it under the right "intent" section (chrome / navigation / editing / visual / code).
+4. If the action is **new**, also extend [`Action`] (`src/action.rs`) in the same commit.
+   Group it under the right "intent" section (chrome / navigation / editing / visual / code).
 5. Wire the handler on every client that needs it:
    - TUI: `crates/outl-tui/src/runtime/dispatch.rs` (or wherever the action switch lives).
    - Desktop: `crates/outl-desktop/src/lib/action-handlers.ts`.
@@ -89,8 +106,10 @@ If you find yourself wanting two different actions on the same chord across mode
 
 **`Cmd+Z` / `Cmd+X` are the canonical "don't shadow the OS" examples:**
 
-- Plain `Cmd+X` carries **no binding at all** — it used to be `RunCodeBlock` (Global), which `preventDefault`ed the OS-universal cut inside every desktop textarea (issue #80). Run-code lives on `Cmd+Shift+X` now.
-- `Cmd/Ctrl+Z` (Undo) and `Cmd/Ctrl+Shift+Z` (Redo) are bound in **Normal**, not Global, so a focused textarea keeps the chord for its own native undo instead of having the dispatcher swallow it. They sit next to the vim spellings (`u` / `Ctrl+R`) in the catalog.
+- Plain `Cmd+X` carries **no binding at all** — it used to be `RunCodeBlock` (Global), which `preventDefault`ed the OS-universal cut inside every desktop textarea (issue #80).
+  Run-code lives on `Cmd+Shift+X` now.
+- `Cmd/Ctrl+Z` (Undo) and `Cmd/Ctrl+Shift+Z` (Redo) are bound in **Normal**, not Global, so a focused textarea keeps the chord for its own native undo instead of having the dispatcher swallow it.
+  They sit next to the vim spellings (`u` / `Ctrl+R`) in the catalog.
 
 ## Wire format (Tauri / JSON)
 
@@ -110,7 +129,8 @@ Serde format is stable and load-bearing:
 - `ChordSequence` is `{ "chords": [Chord, …] }` even for single-chord bindings (so the JS side has one shape to handle).
 - `Modifiers` ships as a string of `|`-joined flag names (`"META"`, `"META|SHIFT"`).
 
-**Don't change these names** — the desktop frontend lives in pure TypeScript without a `bindgen` step. A field rename here is a silent frontend break.
+**Don't change these names** — the desktop frontend lives in pure TypeScript without a `bindgen` step.
+A field rename here is a silent frontend break.
 
 ## Verify before "done"
 
