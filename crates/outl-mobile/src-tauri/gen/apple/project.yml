@@ -46,12 +46,18 @@ targets:
         LSRequiresIPhoneOS: true
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
-        # iPhone-only, portrait-only. Universal (iPad) support is
-        # deliberately off until the layout is tested on a 13" canvas
-        # and screenshots are captured — declaring iPad support without
-        # the 13"/12.9" assets triggers an automatic App Store reject.
+        # Universal app (iPhone + iPad — TARGETED_DEVICE_FAMILY = "1,2"
+        # is set in the pbxproj). Apple requires ALL four orientations
+        # when iPad is declared, otherwise TestFlight upload fails with
+        # a 409 "Invalid bundle … include all of the … orientations to
+        # support iPad multitasking".
+        # Reminder: App Store production submit still requires iPad 13"
+        # and 12.9" screenshots, otherwise review will reject.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 0.3.1
         CFBundleVersion: "0.3.1"
     entitlements:
