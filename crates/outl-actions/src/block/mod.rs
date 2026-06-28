@@ -18,13 +18,15 @@
 //! The surface is split by responsibility so no single file owns
 //! unrelated concerns:
 //!
-//! - [`create`] — mint new blocks and whole subtrees.
-//! - [`edit`] — rewrite a block's text and toggle its TODO / quote
+//! - `create` — mint new blocks and whole subtrees.
+//! - `edit` — rewrite a block's text and toggle its TODO / quote
 //!   markers.
-//! - [`moves`] — re-parent, reorder, and delete existing nodes (delete
-//!   is a move to the trash root, per invariant #6).
+//! - `moves` — re-parent (incl. the arbitrary cross-page
+//!   `move_under` the plugin host applies), reorder, and delete
+//!   existing nodes (delete is a move to the trash root, per
+//!   invariant #6).
 //!
-//! [`wrap`] and [`ensure_in_tree`] are the shared helpers every
+//! `wrap` and `ensure_in_tree` are the shared helpers every
 //! submodule reaches for via `super::`.
 
 use outl_core::hlc::HlcGenerator;
@@ -44,7 +46,7 @@ pub use create::{
     BlockTreeSpec,
 };
 pub use edit::{edit_text, toggle_quote, toggle_todo};
-pub use moves::{delete, indent, move_after, move_down, move_up, outdent};
+pub use moves::{delete, indent, move_after, move_down, move_under, move_up, outdent};
 
 /// Build a [`LogOp`] wrapping `op` with a fresh HLC.
 fn wrap(hlc: &HlcGenerator, op: Op) -> LogOp {

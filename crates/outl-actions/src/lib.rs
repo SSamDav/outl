@@ -52,6 +52,7 @@
 pub mod backlinks;
 pub mod block;
 pub mod collapsed;
+pub mod deeplink;
 pub mod error;
 pub mod exec;
 pub mod history;
@@ -68,10 +69,11 @@ pub mod tree;
 pub use backlinks::{backlinks_for_page, backlinks_for_target, extract_refs, Backlink};
 pub use block::{
     append_block, append_forest, append_tree, create_after, create_under, delete, edit_text,
-    indent, move_after, move_down, move_up, outdent, toggle_quote, toggle_todo, BlockTreeOutcome,
-    BlockTreeSpec,
+    indent, move_after, move_down, move_under, move_up, outdent, toggle_quote, toggle_todo,
+    BlockTreeOutcome, BlockTreeSpec,
 };
 pub use collapsed::{set_block_collapsed, toggle_block_collapsed};
+pub use deeplink::{parse_deep_link, DeepLinkError, DeepLinkTarget, DEEP_LINK_SCHEME};
 pub use error::ActionError;
 pub use exec::{run_code_block, ExecOutputDto, RunCodeBlockOutcome};
 pub use history::{restore_page_md, HistoryStacks, DEFAULT_HISTORY_CAP};
@@ -96,7 +98,7 @@ pub use paste::{
     looks_like_outline, normalize_external_syntax, paste_markdown, PasteAnchor, PasteOutcome,
 };
 pub use person::{search_persons, PERSON_TYPE, TYPE_KEY};
-pub use sync::{OpsFileSnapshot, SyncEngine};
+pub use sync::{FileSyncTransport, OpsFileSnapshot, PeerHealthSnapshot, SyncEngine, SyncTransport};
 pub use todo::{cycle_todo, split_todo, TodoState, DONE_PREFIX, TODO_PREFIX};
 pub use tree::{
     children_of, enclosing_page_id, position_after, position_for_new_last_child, walk_subtree,
