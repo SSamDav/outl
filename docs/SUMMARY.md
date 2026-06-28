@@ -43,6 +43,5 @@
 
 ## Project
 
-* [Roadmap](roadmap.md)
 * [Development guide](development.md)
 * [Contributing & code review](contributing.md)

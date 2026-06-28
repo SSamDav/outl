@@ -160,7 +160,7 @@ Range is inclusive on both sides and emits one entry per day in the interval —
 
 `search` is full-text and lives today as the TUI's workspace search.
 `query` is the structured filter (tag, property, date range, kind).
-The `--raw='…'` flag is reserved for the phase 3 DSL and currently rejects with `INVALID_ARG` — when the DSL lands it folds into the same `outl_query` tool, not a new one.
+The `--raw='…'` flag is reserved for the not-yet-implemented query DSL and currently rejects with `INVALID_ARG` — when the DSL lands it folds into the same `outl_query` tool, not a new one.
 
 ### Backlinks / Refs
 
@@ -329,7 +329,7 @@ Shipping today:
 - `outl workspace info`
 - `outl mcp serve` — full MCP protocol surface (tools, resources, prompts) over stdio.
 
-Still ahead (phase 3+):
+Still ahead:
 
 - Richer `outl query --raw='…'` DSL (today returns `INVALID_ARG`).
 - Per-page block-level property surface beyond the well-known keys the `prop list` probe enumerates.

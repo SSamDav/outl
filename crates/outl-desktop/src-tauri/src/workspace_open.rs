@@ -207,7 +207,7 @@ pub(crate) fn spawn_workspace_opener(
             app.clone(),
         );
 
-        // Phase 2: scan and reconcile orphan `.md` files in yet
+        // Background reconcile: scan and reconcile orphan `.md` files in yet
         // another thread, releasing the workspace lock between each
         // page. The frontend can already query the workspace; pages
         // that get materialised by the reconcile become visible on

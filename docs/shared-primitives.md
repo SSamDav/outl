@@ -211,8 +211,8 @@ The runtime catalog (which languages are available) is selected by the **binary*
 | Re-project a page's `.md` + sidecar to disk / reload + reproject in one call | `SyncEngine::reproject_page` / `refresh_page` | `crates/outl-actions/src/sync.rs` |
 | Snapshot every / peer-only `ops-*.jsonl` (size + mtime) for change detection | `SyncEngine::snapshot` / `snapshot_peers` (`OpsFileSnapshot`) | `crates/outl-actions/src/sync.rs` |
 | Scan `journals/` + `pages/` for orphan `.md` (no sidecar / stale hash) | `SyncEngine::scan_for_orphans` | `crates/outl-actions/src/sync.rs` |
-| Transport abstraction (iCloud polling today; iroh QUIC later) | `outl_actions::SyncTransport` (trait) | `crates/outl-actions/src/sync.rs` |
-| Filesystem / iCloud v0 transport (polls `ops/` every 2 s, delivery is no-op) | `outl_actions::FileSyncTransport` | `crates/outl-actions/src/sync.rs` |
+| Transport abstraction (iroh QUIC default; file/iCloud polling opt-in) | `outl_actions::SyncTransport` (trait) | `crates/outl-actions/src/sync.rs` |
+| Filesystem / iCloud opt-in transport (polls `ops/` every 2 s, delivery is no-op) | `outl_actions::FileSyncTransport` | `crates/outl-actions/src/sync.rs` |
 | Per-peer reachability snapshot from the running transport's own dials (GUI status; never bind a probe endpoint) | `SyncTransport::peer_health` → `outl_actions::PeerHealthSnapshot` | `crates/outl-actions/src/sync.rs` |
 | Acquire the cross-process workspace lock (one writer at a time) | `outl_core::WorkspaceLock::acquire` | `crates/outl-core/src/lock.rs` |
 | Acquire the per-actor write lock (one process writing this actor's jsonl) | `outl_core::ActorWriteLock::try_acquire` | `crates/outl-core/src/lock.rs` |

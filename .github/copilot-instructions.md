@@ -85,7 +85,7 @@ Quote the invariant by name in your comment.
 
 9. **No reintroduction of SQLite, rusqlite, or any binary log format.** Cross-device sync depends on per-actor append-only JSONL.
 
-10. **Settled decisions are off-limits in a PR.** ULID for IDs, `uhlc` for time, MIT license, JSONL-per-actor, Tauri for mobile, iCloud as v0 transport — do not suggest changing these in a code-review comment.
+10. **Settled decisions are off-limits in a PR.** ULID for IDs, `uhlc` for time, MIT license, JSONL-per-actor, Tauri for mobile, iroh as the default sync transport (file/iCloud opt-in) — do not suggest changing these in a code-review comment.
     If a contributor disagrees, the path is an issue, not a PR.
 
 ---
@@ -588,10 +588,9 @@ A long review is a sign you are commenting on too much.
 
 ## 10. Out of scope right now
 
-The project is in Phase 0–1.
+outl ships continuously across TUI, CLI, desktop, and mobile.
 Do **not** suggest work on:
 
-- P2P sync transport (`iroh`) — iCloud is the v0 transport.
 - Query DSL (`{{query: ...}}`).
 - Tauri desktop shells beyond the existing mobile crate.
 - Plugin system (`rhai`).

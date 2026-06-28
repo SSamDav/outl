@@ -170,7 +170,7 @@ Don't add code for these unless explicitly asked:
 - Plugin system (`rhai`)
 - `ChronDbStorage` backend (issue #1, tracked publicly)
 - Android mobile build (only iOS today; Android needs an `NSMetadataQuery` equivalent)
-- Per-page op log shards ([`docs/sync.md` Part 2 — Phase A](docs/sync.md#phase-a--per-page-op-log-shards-for-10k-pages); only land it when the single-jsonl-per-device layout hits the 10k-page wall)
+- Per-page op log shards ([`docs/sync.md` Part 2 — Per-page op log shards](docs/sync.md#per-page-op-log-shards-for-10k-pages); only land it when the single-jsonl-per-device layout hits the 10k-page wall)
 - Character cursor inside the selected block in desktop Normal mode.
   TUI-only today.
   The desktop's vim mode has only a selected block id, so the char-level vim ops `x`/`X`/`D`/`C`/`s`/`r`/`f`/`F`/`~`/`e` surface a status-line nudge instead of firing.

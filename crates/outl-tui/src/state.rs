@@ -577,8 +577,8 @@ pub(crate) struct App {
 
     /// LRU of recently-opened paths. Newest first; bounded to a small
     /// window so the sidebar's `Recent` section stays scannable.
-    /// In-memory only for now — persisting to `.outl/state.toml` is on
-    /// the roadmap (Phase 2 stretch).
+    /// In-memory only for now — persisting to `.outl/state.toml` is a
+    /// planned stretch.
     pub(crate) recent_paths: Vec<PathBuf>,
 
     /// Stack of transient notifications shown in the bottom-right

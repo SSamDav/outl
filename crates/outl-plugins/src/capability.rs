@@ -36,10 +36,10 @@ pub enum Capability {
     /// Turn a block into a rich descriptor (GUI clients only).
     #[serde(rename = "content-transformer:rich")]
     ContentTransformerRich,
-    /// Provide query results (later phase).
+    /// Provide query results (not yet wired).
     #[serde(rename = "query-provider")]
     QueryProvider,
-    /// Provide a sync transport (later phase).
+    /// Provide a sync transport (not yet wired).
     #[serde(rename = "sync-transport")]
     SyncTransport,
     /// Contribute a toolbar button (GUI clients only).

@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn embed_only_handle_rejects_two_embeds_on_one_block() {
         // Two embeds in the same block is ambiguous (which one expands
-        // first?) — phase 1 keeps the rule strict: exactly one token,
+        // first?) — for now keeps the rule strict: exactly one token,
         // surrounded by whitespace.
         assert_eq!(embed_only_handle("!((blk-aaaaaa)) !((blk-bbbbbb))"), None);
     }

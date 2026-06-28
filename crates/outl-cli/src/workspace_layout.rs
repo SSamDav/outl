@@ -73,7 +73,7 @@ pub struct Paths {
     pub config: PathBuf,
     /// `.outl/orphans.log`.
     pub orphans: PathBuf,
-    /// `.outl/peers.toml` (phase 2+ peer registry).
+    /// `.outl/peers.toml` (legacy peer-registry placeholder).
     pub peers: PathBuf,
     /// `templates/journal.md`.
     pub journal_template: PathBuf,
@@ -151,9 +151,10 @@ pub fn init(paths: &Paths) -> Result<()> {
             .with_context(|| format!("writing {}", paths.orphans.display()))?;
     }
 
-    // Empty peers.toml is fine for phase 1.
+    // An empty peers.toml placeholder is fine; the live P2P peer registry
+    // is `.outl/peers.json`, written by `outl peer pair`.
     if !paths.peers.exists() {
-        fs::write(&paths.peers, "# Sync peers go here in phase 2+\n")
+        fs::write(&paths.peers, "# Sync peers live in .outl/peers.json\n")
             .with_context(|| format!("writing {}", paths.peers.display()))?;
     }
 

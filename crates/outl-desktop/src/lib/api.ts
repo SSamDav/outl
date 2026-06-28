@@ -5,7 +5,7 @@
  * paste) are **not** redeclared here — import them directly from
  * `@outl/shared/api/commands`. This file is reserved for commands the
  * desktop client adds on top: workspace picker, settings, and the
- * (Phase 4) code execution wrapper.
+ * code execution wrapper.
  */
 import { invoke } from "@tauri-apps/api/core";
 

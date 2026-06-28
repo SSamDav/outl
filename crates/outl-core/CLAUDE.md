@@ -34,7 +34,7 @@ Treat every change as production-bound.
 - Markdown parsing/rendering → `outl-md`
 - Sidecar `.outl` JSON → `outl-md`
 - CLI / TUI → `outl-cli`, `outl-tui`
-- Network sync → `outl-sync` (phase 2)
+- Network sync → `outl-sync-iroh` (P2P via iroh, default transport; file/iCloud opt-in)
 
 If you find yourself reaching for `comrak`, `ratatui`, `iroh`, or anything file-format related: **stop**.
 You're in the wrong crate.

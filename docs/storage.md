@@ -94,7 +94,7 @@ The non-dotted name pays a "visible directory" cost for guaranteed sync coverage
   Local, never synced.
 - `.outl/orphans.log` — diagnostic from the reconcile pipeline.
   Local.
-- `.outl/peers.toml` — phase-2 peer registry.
+- `.outl/peers.toml` — peer registry for P2P sync.
   Local.
 
 Anything that doesn't make sense to share between devices stays under `.outl/`.

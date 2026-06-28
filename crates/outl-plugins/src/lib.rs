@@ -21,8 +21,8 @@
 //! - Permission parse + gating ([`permission`]).
 //! - The lockfile ([`lockfile`]).
 //! - The engine seam ([`runtime::PluginEngine`]) — a Boa-backed engine, the
-//!   `PluginHost`, and the op-hook / command dispatch surface are layered on in
-//!   the following phases.
+//!   `PluginHost`, and the op-hook / command dispatch surface are layered on
+//!   top.
 
 // `unsafe` is confined to `engine.rs` (Boa capturing natives) with a local
 // `#![allow(unsafe_code)]` and a SAFETY note — the rest of the crate is safe.

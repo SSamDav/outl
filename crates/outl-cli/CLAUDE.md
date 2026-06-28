@@ -195,7 +195,7 @@ New tools land by:
 - ❌ Parse markdown (use `outl-md`)
 - ❌ Hold workspace mutation logic (use `outl-actions`)
 - ❌ Render TUI directly (use `outl-tui` as a library or sub-binary)
-- ❌ Network anything (phase 2)
+- ❌ Network anything (P2P sync lives in `outl-sync`)
 - ❌ Duplicate logic between CLI and MCP shim (always route through the same `cmd/*::pub fn`)
 - ❌ Add a helper here that re-implements something already in `outl-core` / `outl-md` / `outl-actions`.
   `cmd/*` handlers are glue — they parse args, call the upstream API, and JSON-envelope the result.

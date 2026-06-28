@@ -243,7 +243,7 @@ It's **best-effort**: a plugin with an invalid manifest, a hash mismatch, or a J
 | `PluginHost` (load, run, hooks, intent apply) | `crates/outl-plugins/src/host.rs` |
 | Disk loader + `install_from_dir` | `crates/outl-plugins/src/loader.rs` |
 
-The full crate context, invariants, and phase status live in `crates/outl-plugins/CLAUDE.md`.
+The full crate context, invariants, and current status live in `crates/outl-plugins/CLAUDE.md`.
 
 ---
 

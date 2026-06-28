@@ -4,7 +4,7 @@ The TUI.
 **Journal-first** — when you open `outl-tui`, you land on today's journal.
 That's the spec; don't change it.
 
-## Phase 1 scope
+## Scope
 
 - **Read + write** outline (text editing inside blocks, block create / indent / outdent / delete).
 - Two modes: `Normal` (navigate, block ops) and `Insert` (edit a single block's text).
@@ -187,7 +187,7 @@ src/
 │   └── backlinks.rs     # inline backlinks section (below outline, ─ rule)
 ├── outline_ops.rs       # one-line re-export shim — helpers moved to outl_md::outline_ops so the mobile client can share them
 ├── edit_buffer.rs       # cursor + chars; isolated, well-tested
-├── editor.rs            # placeholder for phase 4 (block-level editor widgets)
+├── editor.rs            # placeholder for block-level editor widgets (not yet built)
 └── ui/                  # legacy placeholders; logic lives in view/
 ```
 

@@ -91,7 +91,7 @@ Decision rule (in order):
 When in doubt, ship in the client; promote later when the second client appears.
 **Never** add something here speculatively — premature shared code becomes harder to evolve than two parallel copies.
 
-### Today's surface (Phase −1 → 0)
+### Today's surface
 
 | Concept | Entry | Mirrors (Rust) |
 |---|---|---|

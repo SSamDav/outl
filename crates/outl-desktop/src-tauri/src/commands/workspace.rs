@@ -79,7 +79,7 @@ pub(crate) fn set_workspace(
         app.clone(),
     );
 
-    // Phase 2: scan + reconcile in background so the user can start
+    // Background reconcile: scan + reconcile so the user can start
     // editing today's journal while legacy `.md` files (vim-authored,
     // peer-pushed without sidecar, fixture imports) materialise into
     // the workspace tree behind the scenes. Same policy the boot

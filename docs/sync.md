@@ -538,7 +538,7 @@ Here are ours:
 What's in Part 1 ships and works.
 What follows is designed, referenced from the code, and waiting for the right moment to land — the order is roughly the order in which we expect the constraints to bite.
 
-## Phase A — Per-page op log shards (for 10k+ pages)
+## Per-page op log shards (for 10k+ pages)
 
 ### Why the monolithic jsonl breaks at scale
 
@@ -611,7 +611,7 @@ When iCloud delivers a new `ops/<slug>/ops-<peer>.jsonl`:
 There's no "reload everything" path anymore.
 Granularity stays at the page.
 
-## Phase B — Snapshots
+## Snapshots
 
 Even with per-page op logs, a very active page (1k+ ops) still pays the replay cost on open.
 
@@ -639,7 +639,7 @@ Trade-off:
 
 Working rule: each `apply_page_md_with_sidecar` checks whether the ops since the snapshot exceed N; if so, re-snapshot.
 
-## Phase C — iroh hardening
+## iroh hardening
 
 The iroh transport itself **shipped** — QUIC + hole punching, bidirectional vector-clock delta sync, transitive op relay, and the `outl peer pair` flow are all in Part 1 above.
 What's left is hardening on top of it:
@@ -651,7 +651,7 @@ What's left is hardening on top of it:
   Ops are delivered over an E2E-encrypted channel, but the ops themselves aren't individually signed.
   Signing each op with the author's ed25519 key would let a recipient verify provenance independent of the transport, closing the "a paired-but-malicious peer relays forged ops for actor C" gap.
 - **iroh-blobs snapshot transfer.**
-  Once per-page snapshots exist (Phase B), a freshly paired device shouldn't replay the entire op log over the wire.
+  Once per-page snapshots exist (see [Snapshots](#snapshots)), a freshly paired device shouldn't replay the entire op log over the wire.
   iroh-blobs can ship the binary snapshot directly, then stream only the delta ops past `snapshot.cursor`.
 - **Self-hosted relay (`relay.outl.app`).**
   iroh uses n0's public relays today; running our own removes the last third party from the coordination path.
@@ -693,7 +693,7 @@ No change to the `.md` + `.outl` wire format, so older clients reading the proje
 2. Add `outl-cli migrate-to-per-page-ops` + tests.
 3. Update mobile to use scopes in every Tauri command.
 4. Update TUI likewise.
-5. Add snapshots (Phase B — independent, can land as a follow-up).
+5. Add snapshots (see [Snapshots](#snapshots) — independent, can land as a follow-up).
 6. Document the cross-page operation trade-off in the migration notes.
 
 ---

@@ -5,7 +5,7 @@ Solid + Tailwind frontend, Rust backend that **must stay thin** — every worksp
 
 ## Status
 
-**Phase 6 — feature-complete v0.**
+**Feature-complete v0.**
 Outline edit, journal nav, picker (Cmd+P), backlinks panel, `outl-exec` code blocks, cross-platform FS watcher + auto-reload, settings modal, and the `desktop.yml` CI workflow are all in.
 Signed bundles, Homebrew cask, and graph view ride incrementally on top.
 
@@ -182,8 +182,8 @@ The Vite dev server runs on **port 1421** so it can coexist with `outl-mobile` (
 
 | Layer | Tool | What it covers |
 |-------|------|----------------|
-| Rust commands | `cargo test -p outl-desktop` | command shims, settings IO, fs_watcher (Phases 1+), surgical undo invalidation across a peer reload (`helpers::invalidate_changed_history` — only pages whose projection changed lose their stacks) |
-| Frontend logic | `bun --filter outl-desktop test` | scaffold smoke (today), components + helpers (Phases 1+) |
+| Rust commands | `cargo test -p outl-desktop` | command shims, settings IO, fs_watcher, surgical undo invalidation across a peer reload (`helpers::invalidate_changed_history` — only pages whose projection changed lose their stacks) |
+| Frontend logic | `bun --filter outl-desktop test` | scaffold smoke, components + helpers |
 
 Frontend suites today: `src/setup.test.ts` (scaffold smoke — `@outl/shared` alias resolves),
 `src/lib/chord-format.test.ts`,

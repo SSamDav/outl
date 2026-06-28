@@ -268,7 +268,7 @@ A workspace with no plugins behaves exactly as before.
 Plugins can also register `onOp` hooks that fire after every workspace mutation (your edits, or ops arriving from a peer).
 Hooks are dispatched once per mutation; a hook that itself mutates the workspace never re-triggers itself (loop-safe).
 
-> Keybinding contribution (`contributes.keybindings`) and the install / permission-approval flow land in later phases; today the TUI surfaces plugin **slash commands** and runs **op hooks**.
+> Keybinding contribution (`contributes.keybindings`) and the install / permission-approval flow are not implemented yet; today the TUI surfaces plugin **slash commands** and runs **op hooks**.
 
 ## Panels
 
@@ -384,12 +384,15 @@ and how to set a theme via config or CLI.
 
 ## What's NOT in the TUI yet
 
-Phase 1 lands the core editor and most-used surfaces. Some things are
-explicitly deferred:
+The core editor and most-used surfaces ship today.
+Some things are explicitly deferred:
 
-- **`{{query: ...}}`** — inline saved queries; phase 3.
+- **`{{query: ...}}`** — inline saved queries; not yet implemented.
 - **Visual mode batch indent / yank / paste** — only delete is wired
   today.
-- **Graph view** — phase 5 desktop has it; the TUI may grow one but
+- **Graph view** — the desktop has it; the TUI may grow one but
   not a priority.
-- **Live collaboration / P2P sync** — phase 2.
+- **P2P sync via iroh** — works today (default transport, single-user
+  multi-device over QUIC); the `file` transport (iCloud Drive) is opt-in.
+- **Live multi-user collaboration** — multiple people editing the same
+  workspace concurrently is still out of scope.
