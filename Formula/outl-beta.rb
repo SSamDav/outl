@@ -11,24 +11,24 @@
 class OutlBeta < Formula
   desc "Local-first outliner with CRDT sync (beta channel — every push to main)"
   homepage "https://outl.app"
-  version "0.7.0-beta.86"
+  version "0.7.0-beta.87"
   license "MIT"
 
   on_macos do
     on_arm do
       url "https://github.com/avelino/outl/releases/download/v#{version}/outl-macos-arm64.tar.gz"
-      sha256 "aab5e66aa329d6555f5d54a652d87398e3bb7c5c9ac6c546d527cfd1a3ad3d67" # anchor: macos-arm64
+      sha256 "4c8acd3ef9215adf89726e8836ae5568e1bf3f5649ea14192f7209adb8720162" # anchor: macos-arm64
     end
     on_intel do
       url "https://github.com/avelino/outl/releases/download/v#{version}/outl-macos-x64.tar.gz"
-      sha256 "207ae62f3209d26ea2e89352b498590995aabfaf702cc86f8ba4925593720450" # anchor: macos-x64
+      sha256 "1f780d78be56ca5b1a6a03cbd806a428719c0be31b008e14b81e3acecc1dc230" # anchor: macos-x64
     end
   end
 
   on_linux do
     on_intel do
       url "https://github.com/avelino/outl/releases/download/v#{version}/outl-linux-x64.tar.gz"
-      sha256 "388e3c77e64913268552d317a7dd0ac9c8ca11858786006f169c52fc4b07211e" # anchor: linux-x64
+      sha256 "77b2dba5a04efeca22bf1a12712c429ae31910163a1caa976f79e578724f9320" # anchor: linux-x64
     end
   end
 
