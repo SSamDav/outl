@@ -68,9 +68,9 @@ pub mod tree;
 
 pub use backlinks::{backlinks_for_page, backlinks_for_target, extract_refs, Backlink};
 pub use block::{
-    append_block, append_forest, append_tree, create_after, create_under, delete, edit_text,
-    indent, move_after, move_down, move_under, move_up, outdent, toggle_quote, toggle_todo,
-    BlockTreeOutcome, BlockTreeSpec,
+    append_block, append_forest, append_tree, create_after, create_before, create_under, delete,
+    edit_text, indent, move_after, move_down, move_under, move_up, outdent, toggle_quote,
+    toggle_todo, BlockTreeOutcome, BlockTreeSpec,
 };
 pub use collapsed::{set_block_collapsed, toggle_block_collapsed};
 pub use deeplink::{parse_deep_link, DeepLinkError, DeepLinkTarget, DEEP_LINK_SCHEME};

@@ -204,18 +204,9 @@ The cluster floats over the main pane on an elevated, bordered surface (active t
 
 ### OS-standard chrome (Global mode — fire in any context)
 
-| Chord | Action |
-|---|---|
-| `Cmd/Ctrl+P` | Quick switcher (pages + journals, fuzzy) |
-| `Cmd/Ctrl+J` | Open today's **j**ournal |
-| `Cmd/Ctrl+T` | Toggle TODO / DONE on the focused / selected block (T for **t**ask) |
-| `Cmd/Ctrl+Enter` | Toggle TODO / DONE on the focused / selected block (alt) |
-| `Cmd/Ctrl+Shift+Enter` | Commit + create a sibling block below |
-| `Cmd/Ctrl+Shift+X` | E**x**ecute the focused / selected code block (mirrors the TUI's `g x`). In a textarea the strikethrough binding wins; plain `Cmd/Ctrl+X` is OS cut / view-mode block cut. |
-| `Cmd/Ctrl+[` / `]` | Previous / next journal day |
-| `Cmd/Ctrl+Shift+E` | Toggle sidebar (mirrors VS Code's explorer chord) |
-| `Cmd/Ctrl+Shift+B` | Toggle backlinks panel |
-| `Cmd/Ctrl+,` | Open settings |
+The full per-chord table is in [`docs/shortcuts.md`](../../docs/shortcuts.md) — the single source of truth, shared with the TUI.
+Two desktop-specific bits: `Cmd/Ctrl+Shift+X` runs the focused / selected code block (in a textarea the strikethrough binding wins; plain `Cmd/Ctrl+X` is OS cut / view-mode block cut).
+`Cmd/Ctrl+Shift+Enter` commits + creates a sibling below — caret-aware inside a textarea (see the note below).
 
 > **Chord rationale:** `Cmd+J` (not `Cmd+T`) is the journal because `T` is universally "task"; `Cmd+B` / `Cmd+\` are avoided (bold / 1Password autofill); run-code moved off `Cmd+X` to `Cmd+Shift+X` so it stops shadowing OS cut (issue #80).
 
@@ -235,7 +226,6 @@ Fold toggles (`set_block_collapsed`) bypass `finish_in_page` and are not undoabl
 Invalidation is **surgical**: a workspace **switch** clears every stack,
 but a peer-driven **reload** (`peer-ops-changed` → `reload_workspace`) drops only the stacks of pages whose projection actually changed across the reload — restoring one of those would silently revert the peer's edits.
 Pages the peer didn't touch keep their full undo depth.
-(The first cut cleared everything on every reload, which capped `Cmd+Z` at one step whenever the TUI was open on the same workspace — every TUI write fires `peer-ops-changed`.)
 
 ### Inline markdown (Insert mode — fire when a textarea is focused)
 
@@ -296,6 +286,11 @@ This section captures only the **architectural decisions** a contributor needs t
 - **Char-cursor nudge is one shared handler.**
   All 10 char-cursor catalog entries (`x` `X` `D` `C` `s` `r` `~` `e` `f` `F`) point at `charCursorNudge`.
   One source of truth means the message can't drift between catalog entries.
+
+- **`NewBlockAbove` (`O`) uses `beforeId`, not a post-creation move walk.**
+  `createBlock({ beforeId: anchor })` → `create_before` (floor-slot swap done in core); never reintroduce the old create-at-tail + `moveBlockDown`-loop (it always landed at the bottom).
+  `Cmd/Ctrl+Shift+Enter` is caret-aware in `BlockRow`'s keydown, not the catalog: col 0 → *before*, past col 0 → *below*.
+  `stopImmediatePropagation` there preempts the catalog's Normal-mode create-below binding.
 
 - **Block clipboard: view-mode cut/copy/paste of a whole block** (chords: [`docs/shortcuts.md`](../../docs/shortcuts.md)).
   Bindings are **Normal**-mode only (a focused textarea keeps the native webview clipboard); `appState.blockClipboard` = `{ kind: "cut", nodeId } | { kind: "copy", markdown }`, no `pageId` (the backend resolves the page via `enclosing_page_id`).

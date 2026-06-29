@@ -51,6 +51,7 @@ Every entry here routes through `Workspace::apply` — never build a `LogOp` fro
 |---|---|---|
 | Append a single block under a parent | `outl_actions::block::append_block` | `crates/outl-actions/src/block/create.rs` |
 | Append a tree / forest (with children) under a parent | `outl_actions::block::append_tree` / `append_forest` (uses `BlockTreeSpec` → returns `BlockTreeOutcome`) | `crates/outl-actions/src/block/create.rs` |
+| Create sibling before a block (vim `O`; floor-slot swap when the anchor is first child) | `outl_actions::block::create_before` | `crates/outl-actions/src/block/create.rs` |
 | Create sibling after / child under a block | `outl_actions::block::create_after` / `create_under` | `crates/outl-actions/src/block/create.rs` |
 | Edit a block's text | `outl_actions::block::edit_text` | `crates/outl-actions/src/block/edit.rs` |
 | Move a block to sit **after an arbitrary target** (cut-and-paste-block; crosses pages; one `Op::Move`, preserving id + refs; rejects self-subtree cycles) | `outl_actions::block::move_after` | `crates/outl-actions/src/block/moves.rs` |
