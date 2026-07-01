@@ -17,7 +17,10 @@ import {
   autoDeletePair,
   autoPairBracket,
 } from "@outl/shared/autocomplete";
-import { looksLikeOutline, utf16OffsetToCharOffset } from "@outl/shared/paste";
+import {
+  choosePasteRoute,
+  utf16OffsetToCharOffset,
+} from "@outl/shared/paste";
 import { haptic } from "../lib/haptics";
 import { rawTextWithTodo } from "../lib/outline";
 import { parkCaret } from "../lib/textarea";
@@ -616,14 +619,17 @@ function EditableTextarea(props: {
         autoResize();
       }}
       onPaste={(e) => {
-        // External-clipboard markdown → tree of blocks. We only
-        // intercept when the payload looks like an outline; plain
-        // text falls through to the browser's default splice so
-        // pasting a single URL or code snippet still works the way
-        // the user expects.
+        // External-clipboard paste, with formatting. `choosePasteRoute`
+        // (shared with desktop) decides between rich (text/html → markdown
+        // so a Slack/Docs/Notion paste keeps its **bold** + lists),
+        // structured (plain outline / multi-paragraph the backend splits),
+        // or native (a trivial word / URL stays on the browser splice).
         if (!props.onPaste) return;
-        const text = e.clipboardData?.getData("text/plain") ?? "";
-        if (!looksLikeOutline(text)) return;
+        const decision = choosePasteRoute(
+          e.clipboardData?.getData("text/html") ?? "",
+          e.clipboardData?.getData("text/plain") ?? "",
+        );
+        if (decision.route === "native") return;
         e.preventDefault();
         // `selectionStart` is a UTF-16 code unit offset; the Rust
         // backend wants a codepoint count. Conversion is a no-op
@@ -631,7 +637,7 @@ function EditableTextarea(props: {
         // emoji or other supplementary-plane characters.
         const ta = e.currentTarget;
         const caret = utf16OffsetToCharOffset(ta.value, ta.selectionStart ?? 0);
-        props.onPaste(caret, text);
+        props.onPaste(caret, decision.text);
       }}
       onBlur={props.onBlur}
     />

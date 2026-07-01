@@ -140,7 +140,8 @@ fn render_main(f: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
     // inline backlinks section. The `─` separator and headers live
     // inside `backlinks::render_backlinks_inline`.
     let inner_width = body_area.width.saturating_sub(2);
-    let (mut all_lines, sel_outline) = outline::render_outline(&app.page, app, inner_width);
+    let (mut all_lines, sel_outline, block_starts) =
+        outline::render_outline(&app.page, app, inner_width);
     let outline_len = all_lines.len();
     let (bl_lines, sel_bl) = backlinks::render_backlinks_inline(app, inner_width);
     let bl_offset = all_lines.len();
@@ -200,6 +201,14 @@ fn render_main(f: &mut ratatui::Frame<'_>, area: Rect, app: &mut App) {
     // (`view::wrap::push_wrapped`), so `all_lines` already holds the
     // final visual rows and the index stays honest. See issue #99.
     f.render_widget(body, body_area);
+
+    // Persist what the mouse handler needs to map a click back to a
+    // block next frame: the outline's on-screen rect (borders included),
+    // the block-start map, and how many lines the outline itself took
+    // (so a click in the backlinks tail below it is ignored).
+    app.outline_area = Some(body_area);
+    app.block_starts = block_starts;
+    app.outline_line_count = outline_len;
 
     // Vertical scrollbar on the right border. Only meaningful when the
     // body actually overflows the viewport; the widget renders nothing

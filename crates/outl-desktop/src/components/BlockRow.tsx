@@ -37,7 +37,10 @@ import {
   searchPersons,
 } from "@outl/shared/api/commands";
 import { HighlightedCode } from "@outl/shared/highlight";
-import { looksLikeOutline, utf16OffsetToCharOffset } from "@outl/shared/paste";
+import {
+  choosePasteRoute,
+  utf16OffsetToCharOffset,
+} from "@outl/shared/paste";
 
 import { detectFence } from "@outl/shared/highlight";
 import { appState, setAppState } from "../lib/store";
@@ -62,8 +65,12 @@ export interface BlockCallbacks {
   onToggleTodo: (id: string) => Promise<void>;
   /** Chevron click — fold / unfold. */
   onToggleCollapsed: (id: string, collapsed: boolean) => Promise<void>;
-  /** External-clipboard paste with outline-like payload. */
+  /** External-clipboard paste with formatting (Cmd+V) — structured
+   *  payload is converted to blocks. */
   onPasteMarkdown: (id: string, caret: number, text: string) => Promise<void>;
+  /** Paste without formatting (Cmd+Shift+V) — raw text spliced at the
+   *  caret, no conversion. */
+  onPastePlain: (id: string, caret: number, text: string) => Promise<void>;
   /** Run a fenced code block through `outl-exec`. */
   onRunCodeBlock: (id: string) => Promise<void>;
   /** Run a plugin command picked from the inline `/` slash menu. The
@@ -437,6 +444,29 @@ export function BlockRow(props: {
   }
 
   async function handleKeydown(e: KeyboardEvent) {
+    // Cmd/Ctrl+Shift+V — paste WITHOUT formatting: read the clipboard
+    // and splice it raw at the caret, no outline / paragraph conversion.
+    // (Plain Cmd+V is the native paste event → `handlePaste`, which
+    // routes structured content to the backend "with formatting".)
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      e.shiftKey &&
+      (e.key === "v" || e.key === "V")
+    ) {
+      e.preventDefault();
+      const ta = textareaRef;
+      if (!ta) return;
+      let clip = "";
+      try {
+        clip = await navigator.clipboard.readText();
+      } catch {
+        return; // clipboard read denied — nothing to paste
+      }
+      if (!clip) return;
+      const caretChars = utf16OffsetToCharOffset(ta.value, ta.selectionStart ?? 0);
+      await props.cb.onPastePlain(props.block.id, caretChars, clip);
+      return;
+    }
     // Slash menu owns the arrows / Enter / Tab / Esc while it's open.
     // It never co-exists with the emoji / ref popups (block-initial `/`
     // vs. `:` / `[[`), so checking it first is safe.
@@ -623,14 +653,23 @@ export function BlockRow(props: {
   async function handlePaste(e: ClipboardEvent) {
     const ta = textareaRef;
     if (!ta) return;
-    const text = e.clipboardData?.getData("text/plain") ?? "";
-    if (!text || !looksLikeOutline(text)) return;
+    // "Paste with formatting" (Cmd+V). `choosePasteRoute` (shared with
+    // mobile) decides between: rich (text/html converted to markdown so a
+    // Slack/Docs/Notion paste keeps its **bold** + lists), structured
+    // (plain outline / multi-paragraph the backend splits), or native (a
+    // trivial word / URL stays on the browser splice). Cmd+Shift+V is the
+    // separate "without formatting" path.
+    const decision = choosePasteRoute(
+      e.clipboardData?.getData("text/html") ?? "",
+      e.clipboardData?.getData("text/plain") ?? "",
+    );
+    if (decision.route === "native") return;
     e.preventDefault();
     const caretChars = utf16OffsetToCharOffset(
       ta.value,
       ta.selectionStart ?? 0,
     );
-    await props.cb.onPasteMarkdown(props.block.id, caretChars, text);
+    await props.cb.onPasteMarkdown(props.block.id, caretChars, decision.text);
   }
 
   /** TODO/DONE state to render the bullet by. Edit mode is the

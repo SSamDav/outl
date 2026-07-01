@@ -228,8 +228,9 @@ A few things that compound:
   Bounded at 200 steps.
   Cursor position is restored too.
 - **`K` / `J`** (or `Alt+↑/↓`) — move the current block (with its subtree) up or down among its siblings.
-- **`yy`** — yank the current block (and its subtree).
-  `p` pastes after, `P` pastes before.
+- **`yy`** — yank the current block (and its subtree) to the OS clipboard.
+  `p` pastes from the OS clipboard **with formatting** (outline structure / paragraph split preserved).
+  `P` pastes **without formatting** (raw text, single block — useful when the clipboard contains identifiers with underscores or brackets).
   Works in Visual mode too: press `V`, extend with `j`/`k`, then `y`.
 - **`Ctrl+Enter`** (or **`Ctrl+T`** as a portable fallback) — cycle the block's TODO/DONE/none prefix.
   In Insert mode it cycles inline without moving your cursor relative to the text.
@@ -277,7 +278,8 @@ outl import logseq ~/path/to/logseq-graph ~/notes
 outl import roam ~/Downloads/avelino-backup.json ~/notes
 ```
 
-The importer strips `id::` lines (Logseq), resolves `((uid))` block refs to `[[Page Title]]` links, converts Roam's `{{[[TODO]]}}` to outl's `TODO ` prefix, and slugifies filenames so `[[Meu Projeto]]` lands at `pages/meu-projeto.md` (with `title:: Meu Projeto`).
+The importer strips `id::` lines (Logseq), resolves `((uid))` block refs to `[[Page Title]]` links, and converts Roam's `{{[[TODO]]}}` to outl's `TODO ` prefix.
+Filenames are slugified so `[[Meu Projeto]]` lands at `pages/meu-projeto.md` with `title:: Meu Projeto` preserved.
 
 Anything that can't be resolved stays in the file as `((unresolved:UID))` so you can `grep` and fix it manually.
 

@@ -92,6 +92,10 @@ impl From<Settings> for Config {
                 // the on-disk value so editing the transport doesn't drop it.
                 relay_url: None,
             },
+            // `[tui]` is TUI-only; the desktop doesn't model it. `save`
+            // restores it from disk so a hand-set `mouse_capture` survives
+            // a settings write (same pattern as `[calendar]`).
+            tui: outl_config::TuiCfg::default(),
         }
     }
 }

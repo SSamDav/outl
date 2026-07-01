@@ -96,7 +96,7 @@ crates/outl-desktop/
             ├── mod.rs
             ├── workspace.rs   # set_workspace, current_workspace, reload, settings, stats
             ├── page.rs        # list / search / open / journal nav / resolve_ref
-            ├── block.rs       # create / edit / todo / move / collapsed / paste
+            ├── block.rs       # create / edit / todo / move / collapsed / paste_markdown_at / paste_plain_at / copy_markdown
             ├── exec.rs        # run_code_block — thin Tauri adapter over outl_actions::exec::run_code_block (shared with mobile)
             ├── peers.rs       # outl_peer_list / outl_peer_remove — read/edit <workspace>/.outl/peers.json via outl_sync_iroh::PeersStore
             └── plugin.rs      # plugin_list / plugin_run / plugin_sync_hooks / plugin_keybindings / plugin_toolbar — thin shims over PluginService
@@ -202,32 +202,11 @@ the **sidebar toggle** (`◫`, mirrors `Cmd/Ctrl+Shift+E`) and the **shortcuts-h
 They carry no business logic — clicking flips the same `appState.sidebarOpen` / `appState.helpOpen` store signal the dispatcher flips, so button and keyboard stay in sync.
 The cluster floats over the main pane on an elevated, bordered surface (clear contrast against page content; active toggle inverts to the accent color), so the sidebar button stays reachable even after the left pane is hidden.
 
-### OS-standard chrome (Global mode — fire in any context)
+### OS-standard chrome and undo / redo
 
-| Chord | Action |
-|---|---|
-| `Cmd/Ctrl+P` | Quick switcher (pages + journals, fuzzy) |
-| `Cmd/Ctrl+J` | Open today's **j**ournal |
-| `Cmd/Ctrl+T` | Toggle TODO / DONE on the focused / selected block (T for **t**ask) |
-| `Cmd/Ctrl+Enter` | Toggle TODO / DONE on the focused / selected block (alt) |
-| `Cmd/Ctrl+Shift+Enter` | Commit + create a sibling block below |
-| `Cmd/Ctrl+Shift+X` | E**x**ecute the focused / selected code block (mirrors the TUI's `g x` chord). Inside a textarea the Insert-mode strikethrough binding wins (mode-specific beats Global) — commit first or use the per-block run button. |
-| `Cmd/Ctrl+[` / `]` | Previous / next journal day |
-| `Cmd/Ctrl+Shift+E` | Toggle sidebar (mirrors VS Code's explorer chord) |
-| `Cmd/Ctrl+Shift+B` | Toggle backlinks panel |
-| `Cmd/Ctrl+,` | Open settings |
+The full chord tables live in [`docs/shortcuts.md`](../../docs/shortcuts.md) — don't duplicate them here.
 
-> **Chord rationale:** `Cmd+J` (not `Cmd+T`) is the journal because `T` is universally "task"; `Cmd+B` / `Cmd+\` are avoided (bold / 1Password autofill); run-code moved from `Cmd+X` to `Cmd+Shift+X` because the dispatcher `preventDefault`s Global chords even in Insert mode and `Cmd+X` shadowed OS cut (issue #80).
-
-### Undo / redo (Normal mode — fire when no textarea is focused)
-
-| Chord | Action |
-|---|---|
-| `Cmd/Ctrl+Z` | Undo the last committed block mutation on the current page |
-| `Cmd/Ctrl+Shift+Z` | Redo it |
-| `u` / `Ctrl+R` | Same actions, vim spelling (TUI parity) |
-
-Deliberately **Normal**, not Global: with a textarea focused the chord falls through to the webview (the in-flight draft is the textarea's own undo domain), and a Global binding would `preventDefault` it away.
+Undo/redo is deliberately **Normal**, not Global: with a textarea focused the chord falls through to the webview (the in-flight draft is the textarea's own undo domain), and a Global binding would `preventDefault` it away.
 History is **block-level**: each mutation that goes through `finish_in_page` (edit, create, indent / outdent, move, delete, TODO / quote toggle, paste)
 pushes the page's pre-mutation `.md` render onto a bounded per-page stack (`outl_actions::history::HistoryStacks`);
 undo restores the snapshot through `outl_md::reconcile_md`, so the restore is itself ops in the log — the op log stays the source of truth, nothing is rewritten.
@@ -242,6 +221,20 @@ Pages the peer didn't touch keep their full undo depth.
 `Cmd/Ctrl+B`/`I`/`E`/`Shift+X`/`K` wrap the selection (or insert the delimiter pair around the caret) — bold / italic / inline code / strikethrough / link.
 The full chord + output table lives in [`docs/shortcuts.md`](../../docs/shortcuts.md).
 Implementation lives in `lib/markdown-wrap.ts`: each handler reads `document.activeElement`, splices the value, dispatches an `input` event so `<BlockRow />`'s Solid signal stays in sync, then repositions the caret / selection.
+
+### Paste (with and without formatting)
+
+`Cmd/Ctrl+V` = paste **with formatting** (`paste_markdown_at`).
+Reads `text/html` first.
+A rich clipboard (Slack, Docs, Notion, Gmail) is converted to outl markdown via `htmlToOutlMarkdown` (`@outl/shared/paste`, Turndown engine).
+It routes to the backend whenever the conversion adds formatting the `text/plain` lacks — so pasted **bold** / links / lists survive.
+Otherwise falls back to `text/plain` and routes when `looksLikeOutline` or `hasMultipleParagraphs` is true; multi-paragraph plain text → one block per paragraph; single-line → native splice.
+
+`Cmd/Ctrl+Shift+V` = paste **without formatting** (`paste_plain_at` → `outl_actions::paste::paste_plain`).
+Raw text as one block; no normalisation.
+Fires `onPastePlain` up through `BlockCallbacks` → `OutlineView`.
+
+`create_block`: stale `after_id` (`NotInTree`) → append at page end (fixes `o`-key crash after peer reload).
 
 ### Block-editor chords (inside a block's textarea)
 
@@ -297,7 +290,7 @@ This section captures only the **architectural decisions** a contributor needs t
   All 10 char-cursor catalog entries (`x` `X` `D` `C` `s` `r` `~` `e` `f` `F`) point at `charCursorNudge`.
   One source of truth means the message can't drift between catalog entries.
 
-- **`p` / `P` paste handlers are not wired yet.** `Y` / `YankRange` fill `appState.yankRegister`, but pasting N blocks has a design call (siblings? children? after / before?) that's deliberately deferred.
+- **`Y` / Visual `y` copy to the OS clipboard** via `copy_markdown` + `navigator.clipboard.writeText` (filling `yankRegister` too; paste-in `p`/`P` is deferred — target-position design call).
 
 - **Path to enable char-cursor ops.**
   Add a visible Normal-mode caret painted by `<BlockRow />` (model change), then move the 10 blocked handlers to real implementations.

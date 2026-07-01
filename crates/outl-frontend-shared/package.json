@@ -16,13 +16,15 @@
   },
   "dependencies": {
     "highlight.js": "^11.10.0",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
     "@tauri-apps/api": "catalog:",
     "@tauri-apps/plugin-opener": "catalog:",
     "@types/node": "catalog:",
     "@types/qrcode": "^1.5.5",
+    "@types/turndown": "^5.0.6",
     "happy-dom": "catalog:",
     "solid-js": "catalog:",
     "typescript": "catalog:",

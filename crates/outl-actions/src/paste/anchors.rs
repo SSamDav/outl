@@ -69,9 +69,7 @@ pub(super) fn paste_at_caret(
     caret: usize,
     blocks: &[ParsedNode],
 ) -> Result<PasteOutcome, ActionError> {
-    let original = workspace
-        .block_text(block)
-        .ok_or_else(|| ActionError::NotInTree(block.to_string()))?;
+    let original = host_text_for_caret(workspace, block)?;
     let (left, right) = split_at_char(&original, caret);
 
     // First parsed bullet merges into the host's left-side text.
@@ -128,9 +126,7 @@ pub(super) fn paste_plain_text(
 ) -> Result<PasteOutcome, ActionError> {
     match anchor {
         PasteAnchor::AtCaret { block, caret } => {
-            let original = workspace
-                .block_text(block)
-                .ok_or_else(|| ActionError::NotInTree(block.to_string()))?;
+            let original = host_text_for_caret(workspace, block)?;
             let (left, right) = split_at_char(&original, caret);
             let new_text = format!("{left}{text}{right}");
             edit_text(workspace, hlc, block, &new_text)?;
@@ -172,6 +168,22 @@ pub(super) fn paste_plain_text(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Read the host block's text for a caret paste.
+///
+/// A block that was just created empty — the `o` key or a new line
+/// emits only `Op::Create`, no `Op::Edit` — exists in the tree but has
+/// no materialized text, so `block_text` returns `None`. That is **not**
+/// "missing from the tree": guarding existence on `block_text` made a
+/// paste into a fresh empty block fail with `block <id> is not in the
+/// tree`. Guard existence on the tree itself and default a missing text
+/// to empty; only a genuinely absent node is `NotInTree`.
+fn host_text_for_caret(workspace: &Workspace, block: NodeId) -> Result<String, ActionError> {
+    if !workspace.tree().contains(block) {
+        return Err(ActionError::NotInTree(block.to_string()));
+    }
+    Ok(workspace.block_text(block).unwrap_or_default())
+}
 
 fn to_spec(node: &ParsedNode) -> BlockTreeSpec {
     BlockTreeSpec {

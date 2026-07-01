@@ -79,7 +79,8 @@ relay_url = ""
 |---|---|---|---|---|
 | `preset` | string | `"outl"` | TUI, desktop | Active palette. Unknown names fall through to `outl`. |
 
-Available presets: `outl`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`. See [theming.md](theming.md) for the look of each.
+Available presets: `outl`, `default-dark`, `light`, `logseq-light`, `dracula`, `solarized-dark`, `nord`, `monokai`.
+See [theming.md](theming.md) for the look of each.
 
 #### `[editor]`
 
@@ -94,6 +95,12 @@ Available presets: `outl`, `default-dark`, `light`, `logseq-light`, `dracula`, `
 |---|---|---|---|---|
 | `transport` | `"iroh"` \| `"file"` | `"iroh"` | every client (TUI / desktop / mobile / MCP) | Which transport ships each device's `ops-<actor>.jsonl` to the others. `"iroh"` opens direct P2P QUIC connections to paired peers; `"file"` is the opt-out that relies on iCloud Drive / a shared filesystem. Missing `[sync]` defaults to iroh (P2P is the primary sync). |
 | `relay_url` | string (URL) | _empty_ | TUI peer-sync wiring | iroh relay used for NAT traversal + fallback. Empty means iroh's n0 public relays. Ignored when `transport = "file"`. See [relay.md](relay.md). |
+
+#### `[tui]`
+
+| Field | Type | Default | Read by | Effect |
+|---|---|---|---|---|
+| `mouse_capture` | bool | `false` | TUI only | When `true`, the TUI captures mouse events: the scroll wheel moves the outline selection, a click selects the block under the pointer, and dragging selects a range that is copied as clean outl markdown to the OS clipboard on release. Default is `false` because capturing the mouse disables the terminal's own text-selection (Shift-drag). The keyboard yank (`yy` / `Y` / Visual `y`) always writes to the clipboard regardless of this flag. |
 
 > The iroh transport also reads `~/.outl/identity.key` (this device's ed25519 keypair, per-machine) and `<workspace>/.outl/peers.json` (the paired-device list, per-graph).
 > Those are managed by `outl peer …`, not by this config file — see [sync.md → iroh transport](sync.md#transport-2-iroh-p2p).
@@ -173,10 +180,12 @@ The TOML reader (`outl-config::load`) is **forgiving by design**:
 
 - Missing file → defaults, no warning (first launch is normal).
 - Malformed TOML → defaults + a `tracing::warn` log line, the app boots normally.
-- Unknown fields → ignored. Older binaries reading a newer config don't choke; you can add fields ahead of time.
+- Unknown fields → ignored.
+  Older binaries reading a newer config don't choke; you can add fields ahead of time.
 - Partial schema (e.g. only `[theme]` populated) → other sections fall back to their per-section `Default`.
 
-Saving (`outl-config::save`) writes atomically — the new content lands in `config.toml.tmp` and the file is renamed on top. A crash mid-write never leaves a truncated config.
+Saving (`outl-config::save`) writes atomically — the new content lands in `config.toml.tmp` and the file is renamed on top.
+A crash mid-write never leaves a truncated config.
 
 ---
 

@@ -289,11 +289,15 @@ pub(crate) fn handle_normal_key(app: &mut App, key: KeyEvent) -> Result<bool> {
         // block has no sidecar entry yet (see
         // `App::toggle_collapse_selected`).
         KeyCode::Char('c') => app.toggle_collapse_selected(),
-        // Paste from the yank register. Plain `p`/`P` (no Ctrl, no
-        // Alt) — Ctrl+P is the quick switcher and must beat this.
-        KeyCode::Char('p') if key.modifiers.is_empty() => app.paste_after(),
+        // Paste the OS clipboard. `p` pastes WITH formatting (outline /
+        // paragraph conversion), `P` (Shift+P) pastes WITHOUT formatting
+        // (raw text as one block). Plain `p` only — Ctrl+P is the quick
+        // switcher and must beat this. The internal yank register is
+        // still pasted, but copy/yank now mirrors it to the OS clipboard,
+        // so `p` reads the same content the register holds.
+        KeyCode::Char('p') if key.modifiers.is_empty() => app.paste_clipboard_formatted(),
         KeyCode::Char('P') if key.modifiers == KeyModifiers::SHIFT || key.modifiers.is_empty() => {
-            app.paste_before()
+            app.paste_clipboard_plain()
         }
         KeyCode::Tab => {
             app.indent_current();

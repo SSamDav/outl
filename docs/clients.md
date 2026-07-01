@@ -2,7 +2,8 @@
 
 outl has multiple clients today (TUI, mobile, desktop) and more coming (plugins).
 They all sit on top of the same workspace and the same op log.
-To keep them honest, we route every workspace operation through one shared crate: **`outl-actions`**, and the TS+Solid frontends share `@outl/shared` (`crates/outl-frontend-shared`) for everything pure (DTO types, `<MarkdownInline />`, paste helpers, autocomplete).
+To keep them honest, we route every workspace operation through one shared crate: **`outl-actions`**.
+The TS+Solid frontends share `@outl/shared` (`crates/outl-frontend-shared`) for everything pure (DTO types, `<MarkdownInline />`, paste helpers, copy wrappers, autocomplete).
 
 ## The stack
 
@@ -58,13 +59,16 @@ Yes if any of these are true:
 No if:
 
 - It manipulates client UI state (selection, modes, toasts, focus, keymaps).
-- It manipulates an in-flight `Vec<OutlineNode>` that hasn't been parsed back into a workspace yet (those helpers live in `outl-md::outline_ops`, re-exported through a one-liner shim at `outl-tui/src/outline_ops.rs` because the mobile client needs them too — they're workspace-free pure AST manipulation, so they sit in `outl-md` rather than `outl-actions`).
+- It manipulates an in-flight `Vec<OutlineNode>` that hasn't been parsed back into a workspace yet.
+  Those helpers live in `outl-md::outline_ops`, re-exported through a one-liner shim at `outl-tui/src/outline_ops.rs` because the mobile client needs them too.
+  They're workspace-free pure AST manipulation, so they sit in `outl-md` rather than `outl-actions`.
 - It's storage-backend-specific (iCloud watcher, future ChronDB) — those implement `outl_core::Storage` in the binary that needs them.
 
 ## Surfacing parser warnings on every client
 
 A user can drop a `.md` into the workspace by hand, paste an exported Roam/Logseq tree, or edit a file in vim before outl ever saw it.
-When that file doesn't match the outl dialect (e.g. starts with `# heading`, contains a free paragraph, or imports a markdown table), the parser **does not** drop content — it preserves the line as a regular block and records the recovery in `ParsedPage.warnings: Vec<outl_md::ParseWarning>`.
+When that file doesn't match the outl dialect (e.g. starts with `# heading`, contains a free paragraph, or imports a markdown table), the parser **does not** drop content.
+It preserves the line as a regular block and records the recovery in `ParsedPage.warnings: Vec<outl_md::ParseWarning>`.
 
 Every client surfaces these warnings to the user instead of pretending the file is clean:
 
@@ -82,7 +86,8 @@ Users decide when to clean up; outl never deletes content on their behalf.
 
 ## Running code blocks
 
-Every client that lets the user execute a `` ```lang ``` `` block (TUI `g x`, desktop `Cmd+Shift+X` / Run button, mobile long-press → "Run code") goes through **one** shared entry point: `outl_actions::exec::run_code_block(ws, hlc, root, registry, page, block)`.
+Every client that lets the user execute a `` ```lang ``` `` block (TUI `g x`, desktop `Cmd+Shift+X` / Run button, mobile long-press → "Run code") goes through **one** shared entry point:
+`outl_actions::exec::run_code_block(ws, hlc, root, registry, page, block)`.
 
 ```text
 client gesture (TUI chord / Cmd+Shift+X / long-press)
@@ -102,13 +107,64 @@ client wraps with refreshed PageView and ships it down its Tauri/TUI surface
 
 The DTO returned is intentionally *narrow* — `language`, `result_ok` (stdout/stderr/duration/exit), `error`.
 Clients add the refreshed page projection themselves because each client owns its own `PageView` shape (mobile's iCloud-backed variant differs from desktop's path-picker variant).
-The duplication that used to live in `outl-desktop/src-tauri/src/commands/exec.rs` and `outl-mobile/src-tauri/src/exec.rs` was collapsed into this single function — `flat_index_for_block` and the path lookup were the canonical "two parallel implementations" case the workspace-level Reuse-first policy exists to prevent.
+The duplication that used to live in `outl-desktop/src-tauri/src/commands/exec.rs` and `outl-mobile/src-tauri/src/exec.rs` was collapsed into this single function.
+`flat_index_for_block` and the path lookup were the canonical "two parallel implementations" case the workspace-level Reuse-first policy exists to prevent.
 
 The runtime catalog is selected per-binary via `outl-exec` features:
 
 - `outl-cli`, `outl-tui`, `outl-desktop` — default features (Lisp + JS + Python + Lua + Rust via wasmtime).
 - `outl-mobile` — opts out of `lang-rust` (wasmtime is heavy and trips iOS code-signing restrictions on dynamic code generation).
 - `outl-actions` — `default-features = false` so it never drags `wasmtime` into the mobile IPA via the back door.
+
+## Copy and paste
+
+Every client supports copying blocks as clean outl markdown and pasting markdown from external apps.
+
+### Copy out
+
+| Client | How to copy | What is copied |
+|---|---|---|
+| TUI | `yy` / `Y` (Normal) or `y` (Visual range) | Selected block(s) + full subtrees as canonical outl markdown, written to the OS clipboard via arboard (X11/Wayland/macOS) with an OSC 52 fallback for SSH / tmux / Crostini. Status line confirms: `yanked N block(s) → clipboard` or `(clipboard unavailable)`. |
+| Desktop | `Y` (Normal) or `y` (Visual range) | Same serialisation via the `copy_markdown` Tauri command (`outl_actions::copy_markdown`) + `navigator.clipboard.writeText`. |
+| Mobile | Long-press → "Copy" in the context menu | Block + full subtree via the `copy_markdown` Tauri command, written to the iOS clipboard. |
+
+The serialisation is handled by `outl_actions::copy_markdown` on the Rust side and `copyMarkdown` (`@outl/shared/api/commands`) on the TS side.
+The format is canonical outl markdown: `- ` bullets, 2-space indent, inline block props alpha-sorted, `TODO`/`DONE`/`> ` prefixes verbatim.
+Pasting the result back into any outl client reconstructs the same tree.
+
+### Paste in
+
+Every client distinguishes **paste with formatting** from **paste without formatting**.
+
+**With formatting** (`Cmd/Ctrl+V` on desktop, `p` in the TUI, the default paste on mobile) routes the clipboard through `outl_actions::paste_markdown` when the content looks structured.
+It applies these conversions:
+
+- Roam `{{[[TODO]]}}` / `{{[[DONE]]}}` → `TODO` / `DONE` prefix.
+- GitHub `- [ ]` / `- [x]` → `TODO` / `DONE` prefix.
+- Logseq `id::` metadata → stripped.
+- 4-space indent → 2-space indent.
+- Multi-paragraph plain text (paragraphs separated by a blank line) → one block per paragraph.
+- Single-paragraph plain text → falls through to the browser/terminal default splice.
+
+**Without formatting** (`Cmd/Ctrl+Shift+V` on desktop, `P` in the TUI; not available on mobile) calls `outl_actions::paste_plain`.
+The raw clipboard text is inserted as a single block at the anchor with no normalisation, outline parsing, or paragraph splitting.
+Use this when the text contains underscores, brackets, or other characters that would be misread as markdown syntax.
+
+The routing decision uses two helpers from `@outl/shared/paste`:
+`looksLikeOutline` detects bullet structure;
+`hasMultipleParagraphs` detects blank-line-separated paragraphs.
+Either condition sends the paste to the backend (structured path) on `Cmd/Ctrl+V`.
+
+| Client | With formatting | Without formatting |
+|---|---|---|
+| TUI | `p` — routes to backend when outline or multi-paragraph; else native splice | `P` — raw text, single block |
+| Desktop | `Cmd/Ctrl+V` — routes to backend when outline or multi-paragraph; else native splice | `Cmd/Ctrl+Shift+V` — raw text, single block |
+| Mobile | paste — routes to backend when outline or multi-paragraph; else native splice | not available |
+
+### TUI mouse drag copy (opt-in)
+
+With `[tui] mouse_capture = true` in `~/.config/outl/config.toml`, dragging across blocks in the TUI selects a range and copies it as outl markdown on release.
+See [tui.md → Mouse capture](tui.md#mouse-capture-opt-in) and [config.md → `[tui]`](config.md#tui) for details.
 
 ## TODO/DONE convention
 
@@ -203,15 +259,17 @@ See `crates/outl-mobile/CLAUDE.md` for the full bundle ID, signing team, contain
 When a click on `[[avelino/outl]]`, `#code-review`, `[[2026-06-04]]`
 or a picker field hands a client a string, the client must not split
 the "journal vs page" decision between a frontend regex and a
-backend parser. The two will drift. They already did:
+backend parser.
+The two will drift.
+They already did:
 `[[2026-13-01]]` matched the mobile frontend's `^\d{4}-\d{2}-\d{2}$`
 shape regex, the command then fed `2026-13-01` into the strict date
 parser, and the user got an `invalid date slug` toast for what
 should have been a regular page.
 
 The canonical entry point is
-`outl_actions::page::open_or_create_by_ref(target)`. It runs the
-whole decision tree in one place:
+`outl_actions::page::open_or_create_by_ref(target)`.
+It runs the whole decision tree in one place:
 
 1. Date-shaped target → journal (semantic validator, not the regex
    shape — `2026-13-01` falls through).

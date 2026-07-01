@@ -230,6 +230,44 @@ export function pasteMarkdown(
 }
 
 /**
+ * Paste clipboard text **without formatting** — the raw string is
+ * spliced into the host block at `caret`, with no outline detection,
+ * syntax normalization, or paragraph splitting. The plain counterpart of
+ * {@link pasteMarkdown} (desktop `Cmd+Shift+V`). Returns the refreshed
+ * `PageView`.
+ */
+export function pastePlain(
+  pageId: string,
+  blockId: string,
+  caret: number,
+  text: string,
+): Promise<PageView> {
+  return invoke<PageView>("paste_plain_at", {
+    pageId,
+    blockId,
+    caret,
+    text,
+  });
+}
+
+/**
+ * Serialize a block selection — each block plus its full subtree — to
+ * clean outl markdown for the OS clipboard. The inverse of
+ * {@link pasteMarkdown}: copy out, paste back into outl, same tree.
+ *
+ * `blockIds` is in document order (a single block, or a Visual range
+ * top-to-bottom); the markdown preserves it. A descendant whose ancestor
+ * is also selected is dropped (the ancestor's subtree already carries
+ * it), so a range spanning a parent and child never duplicates the child.
+ *
+ * Read-only — the backend produces the string, the caller writes it to
+ * `navigator.clipboard.writeText`.
+ */
+export function copyMarkdown(blockIds: string[]): Promise<string> {
+  return invoke<string>("copy_markdown", { blockIds });
+}
+
+/**
  * Persist the collapsed flag on a single block. The backend generates
  * `Op::SetCollapsed` and appends it to the device's per-actor
  * `ops-<actor>.jsonl` so the flag converges across peers through the

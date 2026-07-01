@@ -50,6 +50,11 @@ Treat matching with the same paranoia as the CRDT.
   - `InlineToken` (owned) + `tokenize_owned` — Serde-friendly, suitable for wire payloads.
     `outl-actions` attaches the result to `OutlineNode.tokens` so mobile renders without a TS tokenizer.
     Adding a variant to `InlineTok` requires adding the matching variant to `InlineToken` plus the conversion in `InlineToken::from_borrowed` in the same change.
+  **Underscore emphasis rule (CommonMark):** `_` does not open or close emphasis when it appears inside a word (no surrounding whitespace/punctuation on both sides).
+  `chamados_chat`, `inc_lag1`, `prod.ml_atendimento` stay literal.
+  `*` is not subject to this restriction — it works mid-word.
+  Enforced in `try_italic_under` / `try_bold_under` via the `closing_underscore` helper.
+  **`inline.rs` is over 900 lines** — known refactor debt; invoke `refactor-architect` before adding further features to this file.
 - **Block index** (`block_index.rs`) — `NodeId → BlockEntry`, `ref_handle → NodeId`, `NodeId → [BlockReference]` (reverse refs), `(slug, dfs_path) → NodeId` for location lookup.
   Population is two-pass (`collect_page_blocks` then `collect_page_refs`) so reverse edges survive arbitrary page-load order during the initial build.
   Lookups are O(1).

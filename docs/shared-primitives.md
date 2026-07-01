@@ -1,7 +1,9 @@
 # Shared primitives catalog
 
 **Before writing any helper, scan these tables first.**
-Most "I need a small string transform / id helper / md coercion / tree walk" needs already have an owner here — the cost of finding the existing one is a `grep`; the cost of missing it shows up later as drift between two parallel implementations (the user is the one who hits the divergence).
+Most "I need a small string transform / id helper / md coercion / tree walk" needs already have an owner here —
+the cost of finding the existing one is a `grep`;
+the cost of missing it shows up later as drift between two parallel implementations (the user is the one who hits the divergence).
 
 
 > This catalog is mirrored at [`.github/copilot-instructions.md`](https://github.com/avelino/outl/blob/main/.github/copilot-instructions.md) §5.1.
@@ -52,6 +54,7 @@ Every entry here routes through `Workspace::apply` — never build a `LogOp` fro
 | Append a single block under a parent | `outl_actions::block::append_block` | `crates/outl-actions/src/block.rs` |
 | Append a tree / forest (with children) under a parent | `outl_actions::block::append_tree` / `append_forest` (uses `BlockTreeSpec` → returns `BlockTreeOutcome`) | `crates/outl-actions/src/block.rs` |
 | Create sibling after / child under a block | `outl_actions::block::create_after` / `create_under` | `crates/outl-actions/src/block.rs` |
+| Create sibling after a block, appending at page end when the anchor is stale | `outl_actions::block::create_after_or_append` (the desktop/mobile `create_block` stale-anchor fallback — one owner, no per-client duplication) | `crates/outl-actions/src/block.rs` |
 | Edit a block's text | `outl_actions::block::edit_text` | `crates/outl-actions/src/block.rs` |
 | Indent / outdent / move up / move down a block | `outl_actions::block::indent` / `outdent` / `move_up` / `move_down` | `crates/outl-actions/src/block.rs` |
 | Re-parent a block under an arbitrary page/block (cross-page move) | `outl_actions::block::move_under` | `crates/outl-actions/src/block.rs` |
@@ -108,6 +111,8 @@ Every entry here routes through `Workspace::apply` — never build a `LogOp` fro
 | Coerce **external markdown** (line endings, indent unit 4→2, Roam/GitHub/Logseq tokens, long-form dates → ISO, strip `id::` with Crockford validation, strip unknown `{{…}}` / `^^…^^`) | `outl_actions::paste::normalize_external_syntax` | `crates/outl-actions/src/paste/normalize.rs` |
 | "Does this clipboard look like an outline?" classifier | `outl_actions::paste::looks_like_outline` | `crates/outl-actions/src/paste/mod.rs` |
 | Convert clipboard markdown into outl ops grafted at a position | `outl_actions::paste::paste_markdown` → `PasteOutcome` (anchor described by `PasteAnchor`) | `crates/outl-actions/src/paste/mod.rs` |
+| Paste raw text as a single block with no normalisation or outline parsing (the "without formatting" path) | `outl_actions::paste::paste_plain(workspace, hlc, anchor, raw)` → `PasteOutcome` | `crates/outl-actions/src/paste/mod.rs` |
+| Serialize a block selection (+ subtrees) to clean outl markdown **for the clipboard** (the inverse of `paste_markdown` / `parse`) | `outl_actions::clipboard::copy_markdown` (workspace + `NodeId`s; GUI backends) / `copy_markdown_nodes` (already-projected `OutlineNode`s; the TUI's AST-first yank) | `crates/outl-actions/src/clipboard.rs` |
 | **Ingest a `.md` as a real page** (creates page node + reconciles blocks; used by import / `serve` / mobile + TUI orphan scanners) | `outl_actions::ingest::ingest_md_file` / `ingest_dir` | `crates/outl-actions/src/ingest.rs` |
 | Create stub pages for every `[[ref]]` with no file of its own (Logseq "implicit pages") | `outl_actions::ingest::create_missing_ref_pages` | `crates/outl-actions/src/ingest.rs` |
 

@@ -19,6 +19,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import {
+  copyMarkdown,
   createBlock,
   deleteBlock,
   editBlock,
@@ -103,6 +104,17 @@ export function buildHandlers(deps: DesktopHandlerDeps): ActionHandlers {
       return null;
     };
     return walk(appState.outline);
+  }
+
+  /** Serialize a block selection to clean outl markdown (backend) and
+   *  write it to the OS clipboard. Both halves are best-effort: the
+   *  webview's `navigator.clipboard` can reject (no focus / permission),
+   *  and a copy never blocks the yank register that `p`/`P` reads. */
+  async function copySelectionToClipboard(blockIds: string[]): Promise<void> {
+    if (blockIds.length === 0) return;
+    const md = await safeCall(copyMarkdown(blockIds));
+    if (md == null) return;
+    void navigator.clipboard?.writeText(md).catch(() => {});
   }
 
   /** Common pattern: await a Tauri command that returns a
@@ -364,15 +376,17 @@ export function buildHandlers(deps: DesktopHandlerDeps): ActionHandlers {
       if (view) deps.applyView(view);
       setAppState("editingBlockId", id);
     },
-    // `Y` — yank the currently selected block's text into the
-    // app's yank register. Mirror the TUI's "yank block" register;
-    // `p` / `P` handlers (TBD) will read from it.
+    // `Y` — yank the selected block as clean outl markdown to the OS
+    // clipboard (subtree included), and keep its text in the in-app
+    // register that `p` / `P` will read. Copy-out is the inverse of
+    // paste-in: the markdown re-pastes into outl as the same tree.
     YankCurrentBlock: () => {
       const id = appState.selectedBlockId;
       if (!id) return;
       const block = lookupBlock(id);
       if (!block) return;
       setAppState("yankRegister", [block.text]);
+      void copySelectionToClipboard([id]);
     },
     OpenRefUnderCursor: async () => {
       // Normal-mode `Enter`. Two branches in priority order:
@@ -605,15 +619,20 @@ export function buildHandlers(deps: DesktopHandlerDeps): ActionHandlers {
       const ids = flattenVisible(appState.outline);
       const loIdx = ids.indexOf(range.lo);
       const hiIdx = ids.indexOf(range.hi);
+      const rangeIds = ids.slice(loIdx, hiIdx + 1);
       const texts: string[] = [];
-      for (let i = loIdx; i <= hiIdx; i++) {
-        const block = lookupBlock(ids[i]);
+      for (const id of rangeIds) {
+        const block = lookupBlock(id);
         if (block) texts.push(block.text);
       }
       setAppState("yankRegister", texts);
       setAppState("lastVisualRange", range);
       setAppState("visualAnchorId", null);
       setAppState("mode", "vim-normal");
+      // Copy the whole range as markdown; the backend drops any block
+      // whose ancestor is also selected so a parent+child range doesn't
+      // duplicate the child.
+      void copySelectionToClipboard(rangeIds);
     },
     DeleteRange: async () => {
       const pageId = appState.page?.id;

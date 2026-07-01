@@ -484,3 +484,81 @@ fn emoji_lone_colon_does_not_tokenize() {
         "non-shortcode colons must stay plain, got {toks:?}"
     );
 }
+
+// --- intra-word underscore is not emphasis (CommonMark) ---
+
+#[test]
+fn intraword_underscore_is_not_italic() {
+    // Identifiers carrying underscores must render literally; an
+    // earlier tokenizer paired the `_`s into italics, so a pasted
+    // snippet like `chamados_chat = null e inc_lag1` rendered half its
+    // text slanted. Regression for the desktop paste report.
+    for src in [
+        "chamados_chat = null",
+        "inc_lag1/chamados_lag1",
+        "prod.ml_atendimento",
+        "databricks_2_train.py",
+        "prod.inter_bx and prod.dm_ops",
+    ] {
+        let toks = tokenize(src);
+        assert!(
+            !toks.iter().any(|t| matches!(t, InlineTok::Italic { .. })),
+            "{src:?} must have no italic token, got {toks:?}"
+        );
+    }
+}
+
+#[test]
+fn intraword_double_underscore_is_not_bold() {
+    let toks = tokenize("a__b__c");
+    assert!(
+        !toks.iter().any(|t| matches!(t, InlineTok::Bold { .. })),
+        "intra-word `__` must not bold, got {toks:?}"
+    );
+}
+
+#[test]
+fn standalone_underscore_emphasis_still_works() {
+    // A `_word_` bounded by non-alphanumerics is still italic — the
+    // intra-word rule must not break legitimate emphasis.
+    for src in ["an _italic_ word", "_lead_ in", "end _tail_"] {
+        let toks = tokenize(src);
+        assert!(
+            toks.iter()
+                .any(|t| matches!(t, InlineTok::Italic { marker: '_', .. })),
+            "{src:?} must still produce an italic token, got {toks:?}"
+        );
+    }
+}
+
+#[test]
+fn intraword_star_still_emphasizes() {
+    // `*` is deliberately NOT subject to the intra-word restriction that
+    // `_` is — it still opens/closes emphasis mid-word. If a refactor
+    // unifies the `_` and `*` rules, this catches the collateral damage.
+    let toks = tokenize("a*b*c");
+    assert!(
+        toks.iter()
+            .any(|t| matches!(t, InlineTok::Italic { marker: '*', .. })),
+        "intra-word `*` must still italicize, got {toks:?}"
+    );
+}
+
+#[test]
+fn mixed_star_italic_and_underscore_identifier_same_line() {
+    // A legitimate `*italic*` and an underscore identifier on the same
+    // line: the identifier stays literal, the star emphasis still fires.
+    let toks = tokenize("veja *isto* em chamados_chat");
+    assert!(
+        toks.iter().any(
+            |t| matches!(t, InlineTok::Italic { marker: '*', inner } if inner == &plain_inner("isto"))
+        ),
+        "the *isto* must be italic, got {toks:?}"
+    );
+    assert!(
+        !toks
+            .iter()
+            .any(|t| matches!(t, InlineTok::Italic { marker: '_', .. })),
+        "chamados_chat must not produce an underscore italic, got {toks:?}"
+    );
+}

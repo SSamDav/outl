@@ -7,8 +7,9 @@
 //! doc for why.
 
 use outl_actions::{
-    append_block, create_after, delete, edit_text, indent, move_down, move_up, outdent,
-    paste_markdown as action_paste_markdown, set_block_collapsed as action_set_block_collapsed,
+    append_block, copy_markdown as action_copy_markdown, create_after_or_append, delete, edit_text,
+    indent, move_down, move_up, outdent, paste_markdown as action_paste_markdown,
+    paste_plain as action_paste_plain, set_block_collapsed as action_set_block_collapsed,
     toggle_quote as action_toggle_quote, toggle_todo as action_toggle_todo, ActionError,
     PasteAnchor,
 };
@@ -16,7 +17,7 @@ use tauri::State;
 
 use crate::helpers::{
     build_page_view, finish_in_page, finish_in_page_with, parse_node_id, storage_root_or_err,
-    with_ws_mut,
+    with_ws, with_ws_mut,
 };
 use crate::state::{AppState, CreateBlockReply, PageView};
 
@@ -33,7 +34,11 @@ pub(crate) fn create_block(
     let (new_id, view) = finish_in_page_with(&state, page, |ws| match after_id {
         Some(id) => {
             let node = parse_node_id(&id).map_err(ActionError::NotInTree)?;
-            create_after(ws, &state.hlc, node, text_owned.as_deref())
+            // Stale-anchor fallback lives in `outl-actions` so desktop and
+            // mobile share it: a peer reload / re-mint can leave `node`
+            // out of the tree, and appending at the page end beats
+            // surfacing "block X is not in the tree" when the user hit `o`.
+            create_after_or_append(ws, &state.hlc, page, node, text_owned.as_deref())
         }
         None => {
             let parent = match parent_id {
@@ -195,4 +200,54 @@ pub(crate) fn paste_markdown_at(
         )
         .map(|_| ())
     })
+}
+
+/// Paste clipboard text **without formatting**: the raw string is
+/// spliced into the host block at `caret` — no outline detection, no
+/// syntax normalization, no paragraph splitting. Bound to `Cmd+Shift+V`;
+/// the "with formatting" counterpart is `paste_markdown_at`.
+#[tauri::command]
+pub(crate) fn paste_plain_at(
+    page_id: String,
+    block_id: String,
+    caret: u32,
+    text: String,
+    state: State<'_, AppState>,
+) -> Result<PageView, String> {
+    let page = parse_node_id(&page_id)?;
+    let block = parse_node_id(&block_id)?;
+    finish_in_page(&state, page, |ws| {
+        action_paste_plain(
+            ws,
+            &state.hlc,
+            PasteAnchor::AtCaret {
+                block,
+                caret: caret as usize,
+            },
+            &text,
+        )
+        .map(|_| ())
+    })
+}
+
+/// Serialize the given blocks (each with its subtree) to clean outl
+/// markdown for the OS clipboard. Read-only — the frontend writes the
+/// returned string to `navigator.clipboard` itself.
+///
+/// `block_ids` arrives in document order (a single yank, or a Visual
+/// range top-to-bottom); the markdown preserves that order. Unknown /
+/// malformed ids fail the whole call rather than silently dropping a
+/// block from the copy. The heavy lifting lives in
+/// `outl_actions::copy_markdown` (the inverse of `paste_markdown`) so the
+/// TUI and mobile produce byte-identical output.
+#[tauri::command]
+pub(crate) fn copy_markdown(
+    block_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let roots: Vec<_> = block_ids
+        .iter()
+        .map(|id| parse_node_id(id))
+        .collect::<Result<_, _>>()?;
+    with_ws(&state, |ws| Ok(action_copy_markdown(ws, &roots)))
 }

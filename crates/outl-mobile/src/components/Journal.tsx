@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import type { PageView } from "@outl/shared/api/types";
 import {
+  copyMarkdown,
   createBlock,
   dateTitle,
   deleteBlock,
@@ -1549,10 +1550,13 @@ export function Journal() {
             delete: handleDelete,
             runCode: handleRunCodeBlock,
             copy: async (id) => {
-              const block = view() ? findBlock(view()!.outline, id) : null;
-              if (!block) return;
+              // Copy the block as clean outl markdown (its subtree
+              // included) — the inverse of paste, so it re-pastes into
+              // outl as the same tree, and reads as a tidy bullet list
+              // anywhere else. The backend serializes; we just write it.
               try {
-                await navigator.clipboard?.writeText(rawTextWithTodo(block));
+                const md = await copyMarkdown([id]);
+                await navigator.clipboard?.writeText(md);
               } catch {
                 // Some webviews refuse navigator.clipboard outside a
                 // user gesture chain; failing silently is acceptable.

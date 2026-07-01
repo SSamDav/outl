@@ -19,11 +19,22 @@
 //! first, then paste, then reload the workspace from disk so the new
 //! tree shows up.
 
-use outl_actions::{children_of, find_by_slug, looks_like_outline, paste_markdown, PasteAnchor};
+use outl_actions::{
+    children_of, find_by_slug, looks_like_outline, paste_markdown, paste_plain, PasteAnchor,
+    PasteOutcome,
+};
 use outl_core::id::NodeId;
 use outl_core::workspace::Workspace;
 
 use crate::state::{App, EditTarget, Mode};
+
+/// Read the OS clipboard, best-effort. `None` on a headless / no-display
+/// environment (the same degradation as the copy side's `arboard`).
+fn read_os_clipboard() -> Option<String> {
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.get_text())
+        .ok()
+}
 
 impl App {
     /// Apply a bracketed-paste payload to the workspace.
@@ -59,6 +70,37 @@ impl App {
                 self.status = "pasted text".into();
                 return;
             }
+        }
+        self.graft_paste(text, false);
+    }
+
+    /// `p` — paste the OS clipboard **with formatting** after the
+    /// selected block: outline syntax is converted and multi-paragraph
+    /// text is split into one block per paragraph.
+    pub(crate) fn paste_clipboard_formatted(&mut self) {
+        match read_os_clipboard() {
+            Some(text) => self.graft_paste(text, false),
+            None => self.status = "clipboard unavailable".into(),
+        }
+    }
+
+    /// `P` — paste the OS clipboard **without formatting** after the
+    /// selected block: the raw text lands as a single block, no
+    /// conversion or splitting.
+    pub(crate) fn paste_clipboard_plain(&mut self) {
+        match read_os_clipboard() {
+            Some(text) => self.graft_paste(text, true),
+            None => self.status = "clipboard unavailable".into(),
+        }
+    }
+
+    /// Commit any in-flight edit, resolve the selected block, and graft
+    /// `text` after it — through `paste_markdown` (formatted) when
+    /// `plain` is false, or `paste_plain` (raw) when true. Reloads the
+    /// workspace and repositions the cursor onto the new tail.
+    fn graft_paste(&mut self, text: String, plain: bool) {
+        if text.is_empty() {
+            return;
         }
         // `commit_insert` writes the in-flight buffer back into the
         // AST and — when the buffer changed against the current page
@@ -111,12 +153,13 @@ impl App {
             return;
         };
 
-        match paste_markdown(
-            &mut self.workspace,
-            &self.hlc,
-            PasteAnchor::AfterBlock(node_id),
-            &text,
-        ) {
+        let anchor = PasteAnchor::AfterBlock(node_id);
+        let result: Result<PasteOutcome, _> = if plain {
+            paste_plain(&mut self.workspace, &self.hlc, anchor, &text)
+        } else {
+            paste_markdown(&mut self.workspace, &self.hlc, anchor, &text)
+        };
+        match result {
             Ok(out) => {
                 // Full refresh: re-read everything from disk and
                 // rebuild the workspace index. The lighter

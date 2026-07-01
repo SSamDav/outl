@@ -303,6 +303,7 @@ Reject PRs that build a `LogOp` from a client and call `apply` directly.
 | Coerce **external markdown** (line endings, indent unit 4→2, Roam/GitHub/Logseq tokens, long-form dates → ISO, strip `id::` with Crockford validation, strip unknown `{{…}}` / `^^…^^`) | `outl_actions::paste::normalize_external_syntax` | `crates/outl-actions/src/paste/normalize.rs` |
 | "Does this clipboard look like an outline?" classifier | `outl_actions::paste::looks_like_outline` | `crates/outl-actions/src/paste/mod.rs` |
 | Convert clipboard markdown → outl ops grafted at a position | `outl_actions::paste::paste_markdown` → `PasteOutcome` / `PasteAnchor` | `crates/outl-actions/src/paste/mod.rs` |
+| Serialize a block selection (+ subtrees) → clean outl markdown for the clipboard (inverse of `paste_markdown` / `parse`) | `outl_actions::clipboard::copy_markdown` (workspace + `NodeId`s) / `copy_markdown_nodes` (projected `OutlineNode`s, TUI yank) | `crates/outl-actions/src/clipboard.rs` |
 | Ingest a `.md` as a real page (creates page node + reconciles blocks) | `outl_actions::ingest::ingest_md_file` / `ingest_dir` | `crates/outl-actions/src/ingest.rs` |
 | Create stub pages for every `[[ref]]` with no file of its own | `outl_actions::ingest::create_missing_ref_pages` | `crates/outl-actions/src/ingest.rs` |
 

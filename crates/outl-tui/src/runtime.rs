@@ -15,7 +15,9 @@ use crossterm::event::{
     self, Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
     PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
-use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+use crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, supports_keyboard_enhancement, EnterAlternateScreen,
@@ -136,6 +138,16 @@ pub fn run_with_theme_override(path: &Path, theme_override: Option<&str>) -> Res
     // bracketed-paste support silently ignore the CSI sequence.
     let _ = execute!(stdout, EnableBracketedPaste);
 
+    // Opt-in mouse capture (`[tui] mouse_capture`). When on, the app
+    // owns the mouse — drag-select copies markdown, the wheel moves the
+    // selection — at the cost of the terminal's native text selection.
+    // Default off, so a normal launch leaves the terminal's selection
+    // untouched. Best-effort: terminals without mouse support ignore it.
+    let mouse_capture = global_cfg.tui.mouse_capture;
+    if mouse_capture {
+        let _ = execute!(stdout, EnableMouseCapture);
+    }
+
     // Ask the terminal to report enhanced key events (kitty keyboard
     // protocol). When supported, this lets us distinguish `Shift+Enter`
     // from `Enter`, `Ctrl+Enter` from `Enter`, and so on — essential
@@ -168,6 +180,9 @@ pub fn run_with_theme_override(path: &Path, theme_override: Option<&str>) -> Res
 
     if enhanced_keys {
         let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
+    }
+    if mouse_capture {
+        let _ = execute!(terminal.backend_mut(), DisableMouseCapture);
     }
     let _ = execute!(terminal.backend_mut(), DisableBracketedPaste);
     let _ = disable_raw_mode();
@@ -399,6 +414,12 @@ fn event_loop(
                 // to outl blocks via the shared paste pipeline.
                 app.check_external_changes();
                 app.paste_external(text);
+                continue;
+            }
+            Event::Mouse(m) => {
+                // Only delivered when `[tui] mouse_capture` is on. Drives
+                // click-select, wheel-scroll, and drag-select-then-copy.
+                app.handle_mouse(m);
                 continue;
             }
             _ => continue,

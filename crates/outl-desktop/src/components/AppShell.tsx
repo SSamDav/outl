@@ -9,6 +9,7 @@ import {
 import type { PageView } from "@outl/shared/api/types";
 
 import { appState, setAppState } from "../lib/store";
+import { flattenAll } from "../lib/outline-walk";
 import { takePendingDeepLink, workspaceStats } from "../lib/api";
 import {
   onDeepLinkNavigate,
@@ -27,6 +28,7 @@ import { PluginEffectLayer } from "./PluginEffectLayer";
 import { SettingsModal } from "./SettingsModal";
 import { HelpOverlay } from "./HelpOverlay";
 import { ChromeToggleBar } from "./ChromeToggleBar";
+import { ErrorToast } from "./ErrorToast";
 
 /**
  * 2-pane shell rendered once a workspace is loaded.
@@ -48,6 +50,23 @@ export function AppShell() {
       outline: view.outline,
       backlinks: view.backlinks,
     });
+    // Drop editing / selection cursors that the new outline no longer
+    // contains. This path fires on peer-driven reloads (onPeerChange →
+    // reloadWorkspace), which replace the outline without going through
+    // OutlineView's page-change effect. A stale editingBlockId /
+    // selectedBlockId would make the next edit_block / create_after hit
+    // "block <id> is not in the tree" — the cursor points at a block the
+    // reload re-materialized under a different id (or dropped).
+    const ids = new Set(flattenAll(view.outline));
+    if (appState.editingBlockId && !ids.has(appState.editingBlockId)) {
+      setAppState("editingBlockId", null);
+      setAppState("mode", "normal");
+    }
+    if (appState.selectedBlockId && !ids.has(appState.selectedBlockId)) {
+      // Fall back to the first block so `o` / `Enter` still have a valid
+      // anchor instead of a dangling id.
+      setAppState("selectedBlockId", view.outline[0]?.id ?? null);
+    }
   }
 
   function setError(msg: string) {
@@ -205,6 +224,9 @@ export function AppShell() {
       <SettingsModal />
       <HelpOverlay />
       <PluginEffectLayer />
+      {/* Mounted last so the notification toast sits above every chrome
+       *  element (ChromeToggleBar, overlays) in the stacking order. */}
+      <ErrorToast />
     </>
   );
 }

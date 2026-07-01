@@ -9,6 +9,7 @@ import {
   openRef,
   outdentBlock,
   pasteMarkdown,
+  pastePlain,
   setBlockCollapsed,
   toggleTodo,
 } from "@outl/shared/api/commands";
@@ -252,6 +253,12 @@ export function OutlineView() {
       const view = await handleError(pasteMarkdown(pageId, id, caret, text));
       if (view) applyView(view);
     },
+    onPastePlain: async (id, caret, text) => {
+      const pageId = appState.page?.id;
+      if (!pageId) return;
+      const view = await handleError(pastePlain(pageId, id, caret, text));
+      if (view) applyView(view);
+    },
     onRunCodeBlock: async (id) => {
       const pageId = appState.page?.id;
       if (!pageId) return;
@@ -384,22 +391,9 @@ export function OutlineView() {
           <InlineBacklinks />
         </div>
       </div>
-
-      <Show when={appState.lastError}>
-        <div class="border-t border-(--color-outl-status-message-fg)/20 bg-(--color-outl-status-message-fg)/5 px-12 py-2 text-xs text-(--color-outl-status-message-fg)">
-          <div class="mx-auto flex max-w-3xl items-center justify-between">
-            <span>{appState.lastError}</span>
-            <button
-              type="button"
-              onClick={() => setAppState("lastError", null)}
-              class="ml-2 opacity-70 hover:opacity-100"
-              aria-label="Dismiss error"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      </Show>
+      {/* The error surface is the top-right `<ErrorToast />` (mounted in
+       *  AppShell). A base banner here sat under the fixed ChromeToggleBar
+       *  and got covered — issue moved it to the notification corner. */}
     </main>
   );
 }

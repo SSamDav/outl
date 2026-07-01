@@ -46,7 +46,8 @@ status:: active
 - first block...
 ```
 
-The `type::` key carries the page's semantic kind and is consumed by surfaces that filter pages by role — `type:: person` is the canonical example, recognised by the `@` mention autocomplete (see [§Mentions](#mentions-name)). Other types (`type:: project`, `type:: meeting`, …) are free-form today; the autocomplete only filters on `person`.
+The `type::` key carries the page's semantic kind and is consumed by surfaces that filter pages by role — `type:: person` is the canonical example, recognised by the `@` mention autocomplete (see [§Mentions](#mentions-name)).
+Other types (`type:: project`, `type:: meeting`, …) are free-form today; the autocomplete only filters on `person`.
 
 ### Outline items
 
@@ -99,7 +100,8 @@ Rules:
   `>foo` (no space) is **not** a quote — same CommonMark rule that decides `>foo` is a literal paragraph and `> foo` is a blockquote.
 - Markers compose in a **canonical order**: `"TODO > body"` / `"DONE > body"` (TODO/DONE before the quote marker).
   `toggle_quote` and `cycle_todo` peel both prefixes off and re-emit in canonical order, so a user who authors them in the other order (`"> TODO foo"`) gets normalised on the next toggle.
-  Why canonical order matters: the backend's `split_todo` reads from the **start** of the text, so a `"> TODO foo"` would surface in the `OutlineNode` DTO as `todo = null` and the literal `"> TODO foo"` in `text` — checkbox disappears mid-flight on mobile / desktop.
+  Why canonical order matters: the backend's `split_todo` reads from the **start** of the text.
+  A `"> TODO foo"` would surface in the `OutlineNode` DTO as `todo = null` and the literal `"> TODO foo"` in `text` — checkbox disappears mid-flight on mobile / desktop.
   The TUI's `split_block_prefixes` still accepts either order for *display* (so externally authored `.md` reads correctly), but every mutation in `outl-actions` emits the canonical form.
 - Children of a quoted block are **not** implicitly quoted — the marker lives on the block, not on its subtree.
   Same policy as TODO/DONE.
@@ -170,7 +172,8 @@ Add a row in both files in the same commit — the `doc-sync-guard` hook treats 
 
 #### Syntax highlighting (desktop + mobile)
 
-`outl-desktop` and `outl-mobile` both render code fences in read mode through the shared `<HighlightedCode />` component, which lazy-loads [`highlight.js`'s "common" bundle][hljs-common] (~30 popular languages, ~80 KB) and applies the brand palette defined in `crates/outl-frontend-shared/src/highlight/styles.css`.
+`outl-desktop` and `outl-mobile` both render code fences in read mode through the shared `<HighlightedCode />` component.
+It lazy-loads [`highlight.js`'s "common" bundle][hljs-common] (~30 popular languages, ~80 KB) and applies the brand palette defined in `crates/outl-frontend-shared/src/highlight/styles.css`.
 
 Unknown / empty languages fall back to a plain `<pre>` with the brand-dark canvas — we never use highlight.js's `"auto"` detection because the misclassification cost (Bash highlighted as Perl) is worse than visual flatness.
 
@@ -206,7 +209,26 @@ The third line (`- this is a regular child block`) is a real child.
 | `!((blk-XXXXXX))` | Block embed — renders the source block expanded with its subtree |
 | `:shortcode:` | GitHub gemoji shortcode — renders as the unicode glyph (`:tada:` → 🎉) |
 | `{{query: ...}}` | Saved query (not yet implemented — parse as opaque) |
-| `**bold**`, `*italic*`, `\`code\`` | Standard CommonMark |
+| `**bold**`, `*italic*` / `_italic_`, `` `code` `` | Standard CommonMark (underscore emphasis rules apply — see below) |
+
+#### Underscore emphasis and intra-word identifiers
+
+`_italic_` works when the underscores are at word boundaries (surrounded by whitespace or punctuation).
+An underscore **inside** a word does not open or close emphasis — it is rendered literally.
+
+Examples that stay plain (no italic):
+
+```
+chamados_chat
+inc_lag1
+prod.ml_atendimento
+databricks_2_train
+```
+
+Use `*italic*` if you need emphasis inside or adjacent to a word-like token.
+`_italic_` in isolation (word-boundary underscores) still works.
+
+This follows the CommonMark spec and is enforced by `try_italic_under` / `try_bold_under` in `outl-md::inline` via the `closing_underscore` helper.
 
 #### Block refs and embeds
 
@@ -228,7 +250,8 @@ Handles are persisted in the sidecar (see [§sidecar](#the-outl-sidecar)) so a f
 An orphaned handle (citation points at a block that no longer exists) renders dimmed in the TUI and is flagged by `outl doctor`.
 
 Handle collisions are vanishingly unlikely — 6 lowercase base32 chars is ~30 bits, ~5×10⁻⁶ birthday probability at 100k blocks.
-When two blocks do land on the same base handle, the second block's handle is lazily expanded one character at a time (from the ULID's Crockford base32 tail) until unique within the workspace, so both the winner and the loser stay resolvable through their own (distinct) handles.
+When two blocks do land on the same base handle, the second block's handle is lazily expanded one character at a time (from the ULID's Crockford base32 tail) until unique within the workspace.
+Both the winner and the loser stay resolvable through their own (distinct) handles.
 The on-disk sidecar still records the deterministic 6-char handle — the divergence lives in memory until a future reconcile rewrites it.
 Workspaces that ever expanded a handle to 7+ characters keep working forever because lookup goes through the in-memory handle, not the literal sidecar field.
 
@@ -256,7 +279,8 @@ Unknown runs (`:notarealemoji:`, `meeting at 14:00 :`) stay plain — there is n
 
 Shortcode shape: `[a-z0-9_+-]+`, single token.
 Covers `:+1:`, `:-1:`, `:smile_cat:`, `:100:`.
-This narrow alphabet is also what makes URL boundaries safe without look-behind: every URL fragment that contains `:` (`https://example.com:8080/api`, `mailto:foo@bar.com`, `git@github.com:avelino/outl.git`) either has an invalid char inside the candidate run (`/`, `.`, `@`) or no closing `:` — `try_emoji` bails on its own.
+This narrow alphabet is also what makes URL boundaries safe without look-behind.
+Every URL fragment that contains `:` (`https://example.com:8080/api`, `mailto:foo@bar.com`, `git@github.com:avelino/outl.git`) either has an invalid char inside the candidate run (`/`, `.`, `@`) or no closing `:` — `try_emoji` bails on its own.
 
 #### Mentions (`[[@name]]`)
 
@@ -314,9 +338,11 @@ Each warning carries:
 
 Two consequences worth knowing:
 
-- **No silent data loss.** Open a file, save it, the content survives.
+- **No silent data loss.**
+  Open a file, save it, the content survives.
   Render is still clean: blocks created from recovered lines render as `- <raw>\n`, so the next save normalizes the file to the dialect.
-- **Surfaces show the warnings.** The TUI banner, the mobile / desktop overlay, and `outl doctor` all read `ParsedPage.warnings` and present them as actionable hints (line number + first 60 chars of the raw text).
+- **Surfaces show the warnings.**
+  The TUI banner, the mobile / desktop overlay, and `outl doctor` all read `ParsedPage.warnings` and present them as actionable hints (line number + first 60 chars of the raw text).
   Users can edit the file at their pace; outl never blocks on a "dirty" page.
 
 ---
@@ -384,7 +410,8 @@ content_hash(block) = sha256(block.text_content.trim().normalize())
 Where `normalize` collapses internal whitespace to single space and strips trailing whitespace.
 This makes the hash robust to whitespace-only edits in external editors.
 
-**Same hash function on read and write.** Diverging hashes silently break matching.
+**Same hash function on read and write.**
+Diverging hashes silently break matching.
 
 ### Sidecar versioning
 
@@ -504,11 +531,13 @@ Now there are two blocks with identical content.
 ### Two identical blocks swap parents
 
 A and B both contain "TODO".
-A was under page X, B under page Y. After edit, A is under Y, B is under X.
+A was under page X, B under page Y.
+After edit, A is under Y, B is under X.
 
 - Pure hash match alone is ambiguous (both new blocks match both old blocks).
 - Tiebreaker: parent matches → A stays under "Y" matches the old A under Y?
-  No — the old A was under X. The "parent matches" tiebreaker breaks.
+  No — the old A was under X.
+  The "parent matches" tiebreaker breaks.
 - Fall back: minimize total moves.
   Either pairing requires one move.
 - Then minimize position diff.
@@ -564,7 +593,8 @@ Keys:
 ## External paste → outl syntax
 
 When the user pastes clipboard markdown from another outliner / note app into outl, `outl_actions::paste_markdown` (in `outl-actions`) normalises the input before parsing it as bullets.
-The same pipeline runs in the TUI (bracketed-paste handler) and the mobile client (textarea `onPaste`).
+The same pipeline runs in every client — the TUI (bracketed-paste handler), the desktop, and mobile (textarea `onPaste`).
+This section is only the **syntax-translation table**; for how paste works as a whole (with / without formatting, rich `text/html` conversion, paragraph splitting) see [Paste](paste.md).
 
 | Input (external) | Output (outl) | Origin |
 |------------------|---------------|--------|
@@ -596,6 +626,7 @@ Heuristic: when no line is either a bare `-` or starts with `- ` (after leading 
 The clipboard payload is spliced into the current block at the caret, no tree conversion.
 The bare `-` form matches the parser, which treats a lone `-` on a line as an empty bullet.
 
-Caret offsets in the mobile client are converted from UTF-16 code units (what `textarea.selectionStart` reports) into Unicode codepoints before the Tauri round-trip, so pasting after an emoji or other supplementary-plane character lands the splice at the right spot.
+Caret offsets in the mobile client are converted from UTF-16 code units (what `textarea.selectionStart` reports) into Unicode codepoints before the Tauri round-trip.
+This ensures pasting after an emoji or other supplementary-plane character lands the splice at the right spot.
 
 The orphan log is cleared as items are resolved.

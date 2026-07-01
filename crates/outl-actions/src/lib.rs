@@ -51,6 +51,7 @@
 
 pub mod backlinks;
 pub mod block;
+pub mod clipboard;
 pub mod clock;
 pub mod collapsed;
 pub mod deeplink;
@@ -69,10 +70,11 @@ pub mod tree;
 
 pub use backlinks::{backlinks_for_page, backlinks_for_target, extract_refs, Backlink};
 pub use block::{
-    append_block, append_forest, append_tree, create_after, create_under, delete, edit_text,
-    indent, move_down, move_up, outdent, toggle_quote, toggle_todo, BlockTreeOutcome,
-    BlockTreeSpec,
+    append_block, append_forest, append_tree, create_after, create_after_or_append, create_under,
+    delete, edit_text, indent, move_down, move_up, outdent, toggle_quote, toggle_todo,
+    BlockTreeOutcome, BlockTreeSpec,
 };
+pub use clipboard::{copy_markdown, copy_markdown_nodes};
 pub use collapsed::{set_block_collapsed, toggle_block_collapsed};
 pub use deeplink::{parse_deep_link, DeepLinkError, DeepLinkTarget, DEEP_LINK_SCHEME};
 pub use error::ActionError;
@@ -96,7 +98,8 @@ pub use page::{
     PageMeta,
 };
 pub use paste::{
-    looks_like_outline, normalize_external_syntax, paste_markdown, PasteAnchor, PasteOutcome,
+    looks_like_outline, normalize_external_syntax, paste_markdown, paste_plain, PasteAnchor,
+    PasteOutcome,
 };
 pub use person::{search_persons, PERSON_TYPE, TYPE_KEY};
 pub use sync::{FileSyncTransport, OpsFileSnapshot, PeerHealthSnapshot, SyncEngine, SyncTransport};

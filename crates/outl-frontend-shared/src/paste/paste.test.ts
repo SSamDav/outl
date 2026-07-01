@@ -1,6 +1,42 @@
 import { describe, expect, it } from "vitest";
 
-import { looksLikeOutline, utf16OffsetToCharOffset } from "./index";
+import {
+  choosePasteRoute,
+  hasMultipleParagraphs,
+  looksLikeOutline,
+  utf16OffsetToCharOffset,
+} from "./index";
+
+describe("hasMultipleParagraphs", () => {
+  it("is false for a single line", () => {
+    expect(hasMultipleParagraphs("just one line")).toBe(false);
+    expect(hasMultipleParagraphs("https://example.com/x")).toBe(false);
+  });
+
+  it("is true for multiple non-blank lines (single or blank separators)", () => {
+    // A chat reply arrives one line per paragraph, `\n`-separated.
+    expect(hasMultipleParagraphs("line a\nline b\nline c")).toBe(true);
+    expect(hasMultipleParagraphs("para one\n\npara two")).toBe(true);
+  });
+
+  it("ignores leading / trailing blank lines", () => {
+    expect(hasMultipleParagraphs("\n\nsolo\n\n")).toBe(false);
+  });
+
+  it("treats whitespace-only lines as blank (not a second paragraph)", () => {
+    expect(hasMultipleParagraphs("solo\n   \n\t")).toBe(false);
+    expect(hasMultipleParagraphs("a\n   \nb")).toBe(true);
+  });
+
+  it("counts CRLF-separated lines (Windows clipboards)", () => {
+    expect(hasMultipleParagraphs("line a\r\nline b")).toBe(true);
+    expect(hasMultipleParagraphs("solo\r\n")).toBe(false);
+  });
+
+  it("is true at exactly two non-blank lines (the boundary)", () => {
+    expect(hasMultipleParagraphs("one\ntwo")).toBe(true);
+  });
+});
 
 describe("looksLikeOutline", () => {
   it("returns false for empty input", () => {
@@ -70,5 +106,65 @@ describe("utf16OffsetToCharOffset", () => {
   it("clamps when the offset overshoots", () => {
     const s = "abc";
     expect(utf16OffsetToCharOffset(s, 999)).toBe(3);
+  });
+});
+
+describe("choosePasteRoute", () => {
+  it("routes rich when HTML adds formatting the plain text lacks", () => {
+    const d = choosePasteRoute("<b>bold</b> word", "bold word");
+    expect(d).toEqual({ route: "rich", text: "**bold** word" });
+  });
+
+  it("does NOT round-trip when HTML is just a styled wrapper (md === plain)", () => {
+    // A <span> with no markdown-visible formatting converts to the same
+    // text as the plain flavour → not rich; a single line → native.
+    const d = choosePasteRoute("<span>hello world</span>", "hello world");
+    expect(d).toEqual({ route: "native" });
+  });
+
+  it("treats an alt-less image (md empty) as non-rich, falls to plain", () => {
+    // md === "" → not rich; single-line plain → native.
+    expect(choosePasteRoute('<img src="x.png">', "a url")).toEqual({
+      route: "native",
+    });
+  });
+
+  it("routes structured for a plain outline with no richer HTML", () => {
+    expect(choosePasteRoute("", "- one\n- two")).toEqual({
+      route: "structured",
+      text: "- one\n- two",
+    });
+  });
+
+  it("routes structured for multi-paragraph plain text", () => {
+    const plain = "First line.\nSecond line.";
+    expect(choosePasteRoute("", plain)).toEqual({
+      route: "structured",
+      text: plain,
+    });
+  });
+
+  it("routes native for trivial single-line plain text", () => {
+    expect(choosePasteRoute("", "https://example.com")).toEqual({
+      route: "native",
+    });
+    expect(choosePasteRoute("", "")).toEqual({ route: "native" });
+  });
+
+  it("ignores trailing whitespace when comparing HTML vs plain", () => {
+    // Plain has a trailing newline the HTML doesn't; the trimmed compare
+    // must not flag it as rich when the content is identical.
+    expect(choosePasteRoute("<span>hi</span>", "hi\n")).toEqual({
+      route: "native",
+    });
+  });
+
+  it("prefers rich over structured when both HTML and multi-paragraph plain exist", () => {
+    const d = choosePasteRoute(
+      "<p><b>H</b></p><p>body</p>",
+      "H\nbody",
+    );
+    expect(d.route).toBe("rich");
+    if (d.route === "rich") expect(d.text).toContain("**H**");
   });
 });

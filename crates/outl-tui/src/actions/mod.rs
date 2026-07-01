@@ -25,6 +25,7 @@ pub(crate) mod collapsed;
 pub(crate) mod exec;
 pub(crate) mod history;
 pub(crate) mod lifecycle;
+pub(crate) mod mouse;
 pub(crate) mod nav;
 pub(crate) mod overlay;
 pub(crate) mod paste;

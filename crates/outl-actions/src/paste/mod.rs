@@ -161,6 +161,34 @@ pub fn paste_markdown(
     // land a mangled string, not what they copied. Normalisation is
     // only legitimate when we're actually going to parse bullets.
     if !looks_like_outline(raw) {
+        // Plain text (no bullets). If it has two or more blank-line
+        // separated paragraphs, graft one block per paragraph so a
+        // pasted chat reply lands as a readable outline instead of one
+        // wall-of-text block. Soft line breaks (single `\n`) stay inside
+        // their paragraph's block. A single paragraph (a URL, a snippet,
+        // one line) keeps the verbatim splice — never fragment that.
+        let paragraphs = split_paragraphs(raw);
+        if paragraphs.len() > 1 {
+            let blocks: Vec<outl_md::parse::OutlineNode> = paragraphs
+                .into_iter()
+                .map(|text| outl_md::parse::OutlineNode {
+                    text,
+                    properties: Vec::new(),
+                    children: Vec::new(),
+                })
+                .collect();
+            return match anchor {
+                PasteAnchor::AsLastChildOf(parent) => {
+                    anchors::paste_as_children(workspace, hlc, parent, &blocks)
+                }
+                PasteAnchor::AfterBlock(after) => {
+                    anchors::paste_after(workspace, hlc, after, &blocks)
+                }
+                PasteAnchor::AtCaret { block, caret } => {
+                    anchors::paste_at_caret(workspace, hlc, block, caret, &blocks)
+                }
+            };
+        }
         return anchors::paste_plain_text(workspace, hlc, anchor, raw);
     }
 
@@ -188,6 +216,23 @@ pub fn paste_markdown(
     }
 }
 
+/// Paste `raw` as **plain text** — no outline detection, no external
+/// syntax normalization, no paragraph splitting. The clipboard contents
+/// land verbatim at the anchor: spliced into the host block at the caret
+/// (`AtCaret`), or as one new block (`AfterBlock` / `AsLastChildOf`).
+///
+/// This is the "paste without formatting" path the clients bind to a
+/// distinct chord (desktop `Cmd+Shift+V`, TUI `P`). [`paste_markdown`] is
+/// the "with formatting" counterpart that converts and splits.
+pub fn paste_plain(
+    workspace: &mut Workspace,
+    hlc: &HlcGenerator,
+    anchor: PasteAnchor,
+    raw: &str,
+) -> Result<PasteOutcome, ActionError> {
+    anchors::paste_plain_text(workspace, hlc, anchor, raw)
+}
+
 /// True when at least one non-blank line starts with `- ` or is just `-`.
 ///
 /// This is the canonical detector that gates the tree-conversion
@@ -208,6 +253,26 @@ pub fn looks_like_outline(s: &str) -> bool {
         let trimmed = line.trim_start();
         trimmed == "-" || trimmed.starts_with("- ")
     })
+}
+
+/// Split pasted plain text into one block per non-blank line.
+///
+/// In a `text/plain` clipboard a paragraph is a **single line** — the
+/// visual wrap of a long sentence carries no newline — so a chat reply or
+/// an email arrives as one line per paragraph, separated by `\n` (and
+/// only sometimes by a blank `\n\n`). Splitting on every non-blank line,
+/// dropping the blank ones, turns that into one block per paragraph for
+/// either separator. Text that is genuinely one unit but carries hard
+/// line breaks (a code listing) is the rare exception — paste that
+/// "without formatting" (`paste_plain`) to keep it as a single block.
+///
+/// Returns an empty `Vec` for all-blank input. Internal to the paste
+/// pipeline.
+pub(crate) fn split_paragraphs(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Flatten a `BlockTreeOutcome` forest into the ids it minted, in
@@ -471,5 +536,172 @@ mod tests {
         assert_eq!(kids.len(), 5);
         let last_text = workspace.block_text(kids[4].0).unwrap_or_default();
         assert_eq!(last_text, "TODO revisar antes de postar");
+    }
+
+    #[test]
+    fn split_paragraphs_is_one_per_nonblank_line() {
+        // One block per non-blank line, for either `\n` or `\n\n`
+        // separators (in a text/plain clipboard a paragraph is a line).
+        let text = "Para one\nPara two\n\nPara three\n";
+        assert_eq!(
+            split_paragraphs(text),
+            vec![
+                "Para one".to_string(),
+                "Para two".to_string(),
+                "Para three".to_string(),
+            ]
+        );
+        assert!(split_paragraphs("   \n  \n").is_empty());
+        assert_eq!(split_paragraphs("solo").len(), 1);
+    }
+
+    #[test]
+    fn paste_after_a_freshly_created_empty_block() {
+        // The `o`/new-line block (Op::Create only, no text) as an
+        // AfterBlock anchor: siblings graft after it, host stays put.
+        let (mut workspace, hlc) = ws();
+        let empty = append_block(&mut workspace, &hlc, None, None).unwrap();
+        let out = paste_markdown(
+            &mut workspace,
+            &hlc,
+            PasteAnchor::AfterBlock(empty),
+            "- one\n- two",
+        )
+        .unwrap();
+        assert_eq!(out.root_count, 2);
+        let order: Vec<String> = crate::tree::children_of(&workspace, NodeId::root())
+            .into_iter()
+            .map(|(id, _)| workspace.block_text(id).unwrap_or_default())
+            .collect();
+        assert_eq!(order, vec!["".to_string(), "one".into(), "two".into()]);
+    }
+
+    #[test]
+    fn paste_as_child_of_a_freshly_created_empty_block() {
+        // Empty host as an AsLastChildOf anchor: children graft under it.
+        let (mut workspace, hlc) = ws();
+        let empty = append_block(&mut workspace, &hlc, None, None).unwrap();
+        paste_markdown(
+            &mut workspace,
+            &hlc,
+            PasteAnchor::AsLastChildOf(empty),
+            "- one\n- two",
+        )
+        .unwrap();
+        let kids: Vec<String> = crate::tree::children_of(&workspace, empty)
+            .into_iter()
+            .map(|(id, _)| workspace.block_text(id).unwrap_or_default())
+            .collect();
+        assert_eq!(kids, vec!["one".to_string(), "two".into()]);
+    }
+
+    #[test]
+    fn split_paragraphs_handles_crlf() {
+        // Windows clipboards separate lines with `\r\n`; `str::lines()`
+        // strips the `\r`, so no carriage return leaks into a block.
+        assert_eq!(
+            split_paragraphs("a\r\nb\r\nc"),
+            vec!["a".to_string(), "b".into(), "c".into()]
+        );
+        // A blank CRLF line is dropped like any other blank.
+        assert_eq!(
+            split_paragraphs("a\r\n\r\nb"),
+            vec!["a".to_string(), "b".into()]
+        );
+    }
+
+    #[test]
+    fn plain_multi_line_pastes_one_block_each() {
+        // The desktop paste report: a chat reply (no bullets, lines
+        // separated by single `\n`) must land as one block per line, not
+        // a single wall-of-text block.
+        let (mut workspace, hlc) = ws();
+        let host = append_block(&mut workspace, &hlc, None, Some("host")).unwrap();
+        let raw = "First line.\nSecond line.\n\nThird line.";
+        let out =
+            paste_markdown(&mut workspace, &hlc, PasteAnchor::AsLastChildOf(host), raw).unwrap();
+        assert_eq!(out.root_count, 3);
+        let kids: Vec<String> = crate::tree::children_of(&workspace, host)
+            .into_iter()
+            .map(|(id, _)| workspace.block_text(id).unwrap_or_default())
+            .collect();
+        assert_eq!(
+            kids,
+            vec![
+                "First line.".to_string(),
+                "Second line.".to_string(),
+                "Third line.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn plain_single_line_stays_one_block() {
+        // One line (a URL, a sentence) is not fragmented.
+        let (mut workspace, hlc) = ws();
+        let host = append_block(&mut workspace, &hlc, None, Some("host")).unwrap();
+        let raw = "https://example.com/just-one-line";
+        paste_markdown(&mut workspace, &hlc, PasteAnchor::AsLastChildOf(host), raw).unwrap();
+        let kids = crate::tree::children_of(&workspace, host);
+        assert_eq!(kids.len(), 1);
+        assert_eq!(workspace.block_text(kids[0].0).as_deref(), Some(raw));
+    }
+
+    #[test]
+    fn paste_into_freshly_created_empty_block() {
+        // The `o` / new-line block: created with no text, so it emits
+        // only `Op::Create` and `block_text` returns None even though the
+        // block IS in the tree. Pasting into it must not fail with
+        // "block <id> is not in the tree" — the earlier code guarded
+        // existence on `block_text` and rejected the empty host.
+        let (mut workspace, hlc) = ws();
+        // `append_block(text=None)` is exactly what `create_block`/`o` does.
+        let empty = append_block(&mut workspace, &hlc, None, None).unwrap();
+        assert_eq!(
+            workspace.block_text(empty),
+            None,
+            "precondition: a create-only block has no materialized text"
+        );
+
+        // Paste with formatting (outline) at the caret of the empty host.
+        let out = paste_markdown(
+            &mut workspace,
+            &hlc,
+            PasteAnchor::AtCaret {
+                block: empty,
+                caret: 0,
+            },
+            "- one\n- two",
+        )
+        .expect("paste into an empty new block must not be NotInTree");
+        assert_eq!(workspace.block_text(empty).as_deref(), Some("one"));
+        assert_eq!(out.host_text.as_deref(), Some("one"));
+
+        // Plain-text paste at the caret of an empty host (Cmd+Shift+V).
+        let empty2 = append_block(&mut workspace, &hlc, None, None).unwrap();
+        paste_plain(
+            &mut workspace,
+            &hlc,
+            PasteAnchor::AtCaret {
+                block: empty2,
+                caret: 0,
+            },
+            "raw text",
+        )
+        .expect("plain paste into an empty new block must not be NotInTree");
+        assert_eq!(workspace.block_text(empty2).as_deref(), Some("raw text"));
+    }
+
+    #[test]
+    fn paste_plain_never_splits_or_converts() {
+        // The "without formatting" path: outline-looking text lands
+        // verbatim, no conversion, no splitting.
+        let (mut workspace, hlc) = ws();
+        let host = append_block(&mut workspace, &hlc, None, Some("host")).unwrap();
+        let raw = "- [ ] task\n\n- [ ] another";
+        paste_plain(&mut workspace, &hlc, PasteAnchor::AsLastChildOf(host), raw).unwrap();
+        let kids = crate::tree::children_of(&workspace, host);
+        assert_eq!(kids.len(), 1, "plain paste is one block, never split");
+        assert_eq!(workspace.block_text(kids[0].0).as_deref(), Some(raw));
     }
 }

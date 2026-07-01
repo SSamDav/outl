@@ -35,7 +35,7 @@ pub(crate) fn render_outline(
     p: &ParsedPage,
     app: &App,
     text_width: u16,
-) -> (Vec<Line<'static>>, Option<usize>) {
+) -> (Vec<Line<'static>>, Option<usize>, Vec<(usize, usize)>) {
     let mut out = Vec::new();
     for (k, v) in &p.properties {
         out.push(Line::from(vec![
@@ -48,6 +48,11 @@ pub(crate) fn render_outline(
     }
     let mut cursor = 0usize;
     let mut selected_line: Option<usize> = None;
+    // `block_starts` records `(first visual line, flat index)` for each
+    // block as it's emitted, in DFS order with ascending start lines, so
+    // a mouse click can resolve a screen row back to the block it landed
+    // on (see `App::block_at_visual_line`).
+    let mut block_starts: Vec<(usize, usize)> = Vec::new();
     for block in &p.blocks {
         render_block(
             block,
@@ -56,10 +61,11 @@ pub(crate) fn render_outline(
             app,
             &mut out,
             &mut selected_line,
+            &mut block_starts,
             text_width,
         );
     }
-    (out, selected_line)
+    (out, selected_line, block_starts)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -70,8 +76,12 @@ pub(crate) fn render_block(
     app: &App,
     out: &mut Vec<Line<'static>>,
     selected_line: &mut Option<usize>,
+    block_starts: &mut Vec<(usize, usize)>,
     text_width: u16,
 ) {
+    // This block's first visual row is wherever `out` is right now —
+    // record it against the flat index before emitting any line.
+    block_starts.push((out.len(), *cursor));
     // Outline only owns selection/cursor decoration when focus lives
     // here. With `Focus::Backlink`, the bullet/caret belong to the
     // backlinks section — drawing them on the outline too would leave
@@ -213,6 +223,7 @@ pub(crate) fn render_block(
                 app,
                 out,
                 selected_line,
+                block_starts,
                 text_width,
             );
         }
@@ -646,7 +657,7 @@ mod tests {
         app.cursor_col = 0;
         app.mode = Mode::Normal;
 
-        let (lines, sel) = render_outline(&app.page, &app, 20);
+        let (lines, sel, _starts) = render_outline(&app.page, &app, 20);
         assert_eq!(sel, Some(0), "selected block starts at line 0");
         assert!(
             lines.len() > 1,

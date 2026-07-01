@@ -15,6 +15,46 @@ cd ~/notes && outl           # no args: opens TUI in cwd
 The TUI requires a real interactive terminal.
 If stdout isn't a TTY (e.g. CI), it exits with a clear error instead of hanging.
 
+## Copy to clipboard
+
+Every yank (`yy` / `Y` in Normal, `y` in Visual) writes clean canonical outl markdown to the OS clipboard.
+Two paths are tried in order:
+
+1. **`arboard`** — direct X11 / Wayland / macOS clipboard API.
+2. **OSC 52** — a terminal escape sequence (`\x1b]52;c;<base64>\x07`) that reaches the clipboard over SSH, inside tmux, and in Chrome OS Crostini where `arboard` has no display server.
+
+The status line reads `yanked N block(s) → clipboard` on success and `yanked N block(s) (clipboard unavailable)` when both paths fail.
+
+Pasting the yanked markdown in another app reconstructs the same bullet structure.
+Pasting back into outl uses `p` (with formatting) or `P` (without formatting) — see [Paste from clipboard](#paste-from-clipboard) below.
+
+## Paste from clipboard
+
+`p` and `P` both read the OS clipboard via `arboard` (`actions/paste.rs`).
+
+`p` — **with formatting.**
+Routes the clipboard text through `outl_actions::paste_markdown` when it looks like a bullet outline or contains multiple blank-line-separated paragraphs.
+Multi-paragraph plain text is split into one block per paragraph.
+Single-paragraph plain text falls through to a native splice at the cursor.
+
+`P` — **without formatting.**
+Calls `outl_actions::paste_plain` directly.
+The raw clipboard text is inserted as a single block with no normalisation, outline parsing, or paragraph splitting.
+Use `P` when the clipboard contains identifiers with underscores, brackets, or other characters that `paste_markdown` would misread as markdown syntax.
+
+## Mouse capture (opt-in)
+
+By default the TUI does not capture mouse events, preserving the terminal's native text-selection (Shift-drag to copy a URL, etc.).
+Set `[tui] mouse_capture = true` in `~/.config/outl/config.toml` to enable mouse support:
+
+| Gesture | Action |
+|---|---|
+| Scroll wheel | Move the outline selection up / down |
+| Click | Select the block under the pointer |
+| Drag + release | Select a range and copy it as clean outl markdown to the OS clipboard |
+
+The drag-copy uses the same arboard + OSC 52 dual path as the keyboard yank.
+
 ## Config
 
 The TUI reads two layers of TOML before launching:
@@ -58,7 +98,7 @@ No characters insert themselves — every key is a command.
 | `r{ch}` | Replace char under cursor with next typed char, stays in Normal (vim `r`) |
 | `f{ch}` / `F{ch}` | Find next / previous occurrence of the next typed char on the current block |
 | `~` | Toggle case of char under cursor; cursor advances one position |
-| `Y` | Yank current block (alias of `y y`) |
+| `Y` | Yank current block (alias of `y y`) — also writes clean outl markdown to the OS clipboard (arboard + OSC 52 fallback for SSH / tmux). Status line: `yanked N block(s) → clipboard` or `(clipboard unavailable)`. |
 | `e` | Cursor to the end of the current / next word (vim `e`; pairs with `w`) |
 | `*` / `#` | Search workspace for the word under cursor (forward / backward). Walk results with `n` / `N`. |
 | `z R` / `z M` | Unfold all / fold all blocks on the current page (chord). `z M` skips leaf blocks — only blocks that already have children get folded; folding a leaf today is invisible, but would silently surface as "children appear collapsed" once the user added any underneath. |
@@ -128,8 +168,8 @@ Used for paragraphs of prose inside one bullet and — most importantly — for 
 
 **Auto-fence**: while typing inside an *open* code fence (the opener
 ` ``` ` is above the cursor but no closer has been typed yet), plain
-`Enter` is treated as a soft newline. This lets you type a fenced
-block naturally without remembering the soft-newline combo:
+`Enter` is treated as a soft newline.
+This lets you type a fenced block naturally without remembering the soft-newline combo:
 
 ```
 - ```lisp        ← typed `- `` ```lisp `, then Enter (+ 1 2)        ← typed body, Enter
@@ -149,7 +189,7 @@ A range of blocks is highlighted.
 | `Esc` / `v` / `V` | Cancel, back to Normal |
 | `j` / `k` / `↑` / `↓` | Extend the range |
 | `d` / `x` | Delete the selected range |
-| `y` | Yank the selected range to the register |
+| `y` | Yank the selected range to the register and to the OS clipboard as clean outl markdown (arboard + OSC 52 fallback) |
 | `Tab` / `>` | Batch indent the selected range |
 | `Shift-Tab` / `<` | Batch outdent the selected range |
 
@@ -297,7 +337,8 @@ Hooks are dispatched once per mutation; a hook that itself mutates the workspace
   Markdown renders inline (bold/italic/code/strike); the selected/editing block is shown raw so cursor columns align with source bytes.
   Block references (`((blk-XXXXXX))`) resolve to the source block's text plus its page icon; orphaned handles render dimmed.
   Embeds (`!((blk-XXXXXX))`) — when the block contains a single embed token (whitespace OK) — render the source block **and its children** expanded read-only below the carrying block.
-  Every embed row carries a `↳ ` prefix (root + descendants), so the expansion reads as one cohesive block; descendants are indented by `2 * (depth + 1)` spaces before their `↳ ` so children align under the source's *text*, not under the parent's `↳ `.
+  Every embed row carries a `↳ ` prefix (root + descendants), so the expansion reads as one cohesive block.
+  Descendants are indented by `2 * (depth + 1)` spaces before their `↳ ` so children align under the source's *text*, not under the parent's `↳ `.
   TODO/DONE checkboxes, page refs, and tags render with their normal styling inside the expansion.
   Recursion is capped at depth 4 to break embed cycles.
   The cursor-bearing block always keeps the raw `((…))` / `!((…))` literal on its first row so column counting stays exact.
@@ -372,10 +413,8 @@ what you don't need):
 | ` ```lua ` | [mlua](https://github.com/mlua-rs/mlua) | Lua 5.4 vendored |
 | ` ```echo ` | builtin | Returns source verbatim — debug only |
 
-Adding another language is one file under `crates/outl-exec/src/runtimes/`
-plus a feature flag. See [`docs/exec.md`](exec.md) (forthcoming) for
-the contract and `outl-exec/src/runtimes/lisp.rs` as the canonical
-template.
+Adding another language is one file under `crates/outl-exec/src/runtimes/` plus a feature flag.
+See [`docs/exec.md`](exec.md) (forthcoming) for the contract and `outl-exec/src/runtimes/lisp.rs` as the canonical template.
 
 ## Theming
 

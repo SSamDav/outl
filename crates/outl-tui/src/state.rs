@@ -641,6 +641,26 @@ pub(crate) struct App {
     /// page or half-page. Updated by [`crate::view::render_main`].
     pub(crate) viewport_height: u16,
 
+    /// The outline widget's on-screen rectangle (borders included) from
+    /// the last frame. `None` until the first render. Mouse events map a
+    /// `(column, row)` back to a block through this + [`Self::scroll_y`].
+    /// Updated by [`crate::view::render_main`].
+    pub(crate) outline_area: Option<ratatui::layout::Rect>,
+    /// Visual-line → flat-block-index map for the last frame, one entry
+    /// per block in DFS order as `(start_visual_line, flat_index)` with
+    /// `start_visual_line` ascending. A click resolves to the block with
+    /// the greatest `start_visual_line` not past the clicked line.
+    /// Rebuilt every render by [`crate::view::outline::render_outline`].
+    pub(crate) block_starts: Vec<(usize, usize)>,
+    /// Number of visual lines the outline itself occupied last frame
+    /// (excludes the inline backlinks section appended after it). A
+    /// click below this is outside the navigable outline and is ignored.
+    pub(crate) outline_line_count: usize,
+    /// Flat index where a left-button drag began (mouse selection
+    /// anchor). `Some` between mouse-down and mouse-up; drives whether a
+    /// release copies a Visual range or just leaves a click-selection.
+    pub(crate) mouse_anchor: Option<usize>,
+
     /// Last-seen mtime of the page file on disk. Set by `load_current`
     /// and `save`; consulted by the polling loop so external edits
     /// (e.g. `nvim` saving the same `.md`) are picked up automatically.

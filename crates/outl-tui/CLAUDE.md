@@ -46,6 +46,24 @@ This section captures only the **architectural / TUI-specific behaviour** a cont
 - **`y r` clipboard fallback.**
   `y r` (chord) copies `((blk-XXXXXX))` to the OS clipboard via `arboard` **and** stashes it in `last_yanked_ref`.
   Status flips to `yanked … (clipboard unavailable)` on headless / no-display environments — the in-app yank register still works.
+- **`yy` / `Y` / Visual `y` write to the OS clipboard.**
+  Every yank writes clean canonical outl markdown to the OS clipboard via two paths in `actions/yank.rs`:
+  1. `arboard` — direct X11 / Wayland / macOS clipboard API (requires a display server).
+  2. OSC 52 escape sequence (`\x1b]52;c;<base64>\x07`) — works over SSH, inside tmux, and in Chrome OS Crostini where `arboard` has no display server to talk to.
+  The status line reads `yanked N block(s) → clipboard` on success and `yanked N block(s) (clipboard unavailable)` when both paths fail.
+  The yank register is always populated regardless.
+- **`p` / `P` are OS clipboard paste, not yank-register paste.**
+  `p` = paste **with formatting**: reads OS clipboard via `arboard` (`actions/paste.rs`) and routes to `outl_actions::paste_markdown` when `looks_like_outline` or multi-paragraph; else native splice.
+  `P` = paste **without formatting**: reads OS clipboard and calls `outl_actions::paste_plain` — raw text as one block, no normalisation.
+  The old in-app yank-register paste (`p`/`P` → paste after/before) was removed; the yank register is now mirrored to the OS clipboard on every `yy`/`Y`/`y`, so `p` picks it up via the clipboard path.
+- **Visual range captures top-level roots only.**
+  When yank (`y`), delete (`d`), or `Esc` exits Visual, `remember_visual_range` walks the selected ids and drops any id whose ancestor is also in the selection (it already comes inside the ancestor's subtree via `copy_markdown`).
+  This prevents the same block appearing twice in the copied markdown when a parent and child are both in the Visual range.
+- **Mouse capture (opt-in).**
+  Set `[tui] mouse_capture = true` in `~/.config/outl/config.toml` to enable `Event::Mouse` handling (`actions/mouse.rs`).
+  When active: the scroll wheel moves the outline selection, a click selects the block under the pointer, and a drag selects a range — on button release the range is yanked as markdown to the OS clipboard (same arboard + OSC 52 dual path as `y`).
+  Default is `false` because capturing the mouse **disables the terminal's own text-selection** (Shift-drag in most terminals).
+  The keyboard yank paths work regardless of this flag.
 - **`Enter` is overloaded.**
   Open `[[ref]]` / `#tag` / journal / block ref (`((blk-X))` / `!((blk-X))`) under cursor, else enter Insert.
   On a block ref it jumps to the source page and positions the cursor on the referenced block; orphan handles surface a status message and stay put.
@@ -169,7 +187,8 @@ src/
 │   ├── block.rs         # Insert mode, create/indent/outdent/delete blocks
 │   ├── history.rs       # undo / redo snapshots
 │   ├── visual.rs        # Visual mode + range ops
-│   ├── yank.rs          # yank register, in-app paste of yanked blocks
+│   ├── yank.rs          # yank register, copy-to-OS-clipboard (arboard + OSC 52)
+│   ├── mouse.rs         # mouse capture: click-selects, wheel moves, drag-selects and copies markdown on release
 │   ├── paste.rs         # external-clipboard paste (bracketed paste → outl_actions::paste_markdown)
 │   ├── exec.rs          # run code block via outl_exec
 │   ├── plugins.rs       # outl_plugins::PluginHost wiring (load, slash dispatch, op-hook sweep)
@@ -195,7 +214,8 @@ src/
 
 - `ratatui` + `crossterm` (UI).
 - `outl-core`, `outl-md` (workspace, parse/render/reconcile).
-- `arboard` (OS clipboard for `y r` / `/refer` / `/refer-embed`; degrades to status-line-only on headless).
+- `arboard` (OS clipboard for `y r` / `/refer` / `/refer-embed` and for yank-to-clipboard; degrades to status-line-only on headless).
+- `base64` (encodes the OSC 52 escape sequence that writes to the clipboard in SSH / tmux / Crostini environments where `arboard` has no display server).
 - `outl-plugins` (JS plugin runtime — `PluginHost`, `load_installed`; default `js`/Boa feature on).
 - `walkdir`, `toml`, `ulid`, `chrono`, `anyhow`.
 

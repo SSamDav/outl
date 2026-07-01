@@ -108,7 +108,15 @@ export function previousVisibleId(
   if (!current) return ids[0];
   const idx = ids.indexOf(current);
   if (idx === -1) return ids[0];
-  return ids[Math.max(idx - 1, 0)];
+  // No previous block when `current` is the first (or only) one — return
+  // null, never `current` itself. The old `Math.max(idx - 1, 0)` →
+  // `ids[0]` left the cursor on the very block the caller was about to
+  // delete: selection then anchored a *trashed* node, and `o` /
+  // new-block created the next block under the trash root (a deleted
+  // node still satisfies `tree.contains`), corrupting the page. Callers
+  // already handle null (delete clears the cursor; the page-change
+  // effect re-snaps to the first block).
+  return idx > 0 ? ids[idx - 1] : null;
 }
 
 /**

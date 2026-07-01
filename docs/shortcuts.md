@@ -19,7 +19,8 @@ If a row below disagrees with what you observe in the app, **the code is right a
 - **Chrome / Global** chords fire in every mode.
 - **Normal / Insert / Visual / Overlay** mirror the vim modes.
   The desktop subscribes to `Normal`/`Visual` only while `editor.vim_mode = true` (see [`docs/config.md`](config.md)); chrome and `Insert` chords are always live.
-- **`Cmd`** is the macOS modifier; **`Ctrl`** is the same chord on Linux / Windows / TUI. We list one form per row to keep the table readable.
+- **`Cmd`** is the macOS modifier; **`Ctrl`** is the same chord on Linux / Windows / TUI.
+  We list one form per row to keep the table readable.
 - A chord in the form `q q` is a vim-style two-key sequence: press the first, then the second within ~1 s.
 
 ---
@@ -42,7 +43,10 @@ If a row below disagrees with what you observe in the app, **the code is right a
 
 > **Why `Cmd+J` and not `Cmd+T` for today's journal?** Every outliner ecosystem uses `T` for *task* / TODO — TUI's `Ctrl+T`, Logseq's `Cmd+T`, the universal Markdown checkbox shortcut. Re-training that muscle memory would be hostile. `J` for **journal** is unambiguous and lines up with the TUI's `g j` chord.
 
-**Defaults the user often asks about.** Both clients ship with **sidebar and backlinks panel HIDDEN** (`show_sidebar: false`, `show_backlinks: false`). Editor-hero on first launch — the user opts the panels in with the chord. This matches Bear / Ulysses on the desktop and `outl-tui`'s historical behaviour.
+**Defaults the user often asks about.**
+Both clients ship with **sidebar and backlinks panel HIDDEN** (`show_sidebar: false`, `show_backlinks: false`).
+Editor-hero on first launch — the user opts the panels in with the chord.
+This matches Bear / Ulysses on the desktop and `outl-tui`'s historical behaviour.
 
 ### Why the shifted variants for sidebar / backlinks
 
@@ -51,7 +55,8 @@ If a row below disagrees with what you observe in the app, **the code is right a
 | `Cmd+B` | Reserved for **bold** in Insert mode — every popular markdown editor (Notion, Obsidian, Discord, Slack, Typora) treats it that way. Hijacking would be hostile. |
 | `Cmd+\` | macOS **1Password** global autofill. Stealing it breaks every 1Password user. |
 
-So `Cmd+Shift+E` (VS Code's "Show Explorer") and `Cmd+Shift+B` are the canonical chrome chords on the desktop, and the TUI mirrors the spirit with `Ctrl+E` / `Ctrl+B` (most terminals collapse `Ctrl+Shift+letter` into `Ctrl+letter`, so both forms work identically).
+So `Cmd+Shift+E` (VS Code's "Show Explorer") and `Cmd+Shift+B` are the canonical chrome chords on the desktop.
+The TUI mirrors the spirit with `Ctrl+E` / `Ctrl+B` (most terminals collapse `Ctrl+Shift+letter` into `Ctrl+letter`, so both forms work identically).
 
 ---
 
@@ -74,7 +79,8 @@ Mirrors the convention every markdown editor on the planet ships.
 
 ## Outline navigation — Normal mode
 
-The desktop honours `Normal`/`Visual` only while `editor.vim_mode = true`. The TUI is vim-style by definition.
+The desktop honours `Normal`/`Visual` only while `editor.vim_mode = true`.
+The TUI is vim-style by definition.
 
 | Action | TUI | Desktop (vim on) | Mobile |
 |---|---|---|---|
@@ -86,7 +92,9 @@ The desktop honours `Normal`/`Visual` only while `editor.vim_mode = true`. The T
 | Enter Insert at end of block (vim `A`) | `A` | `A` | — |
 | Substitute block (clear + Insert at col 0; `S` / `cc`) | `S` | `S` | — |
 | Substitute char under cursor (= `xi`) | `s` | — *(char cursor only)* | — |
-| Yank current block (`Y`, alias of `y y`) | `Y` | `Y` | — |
+| Yank current block to register + OS clipboard (`Y`, alias of `y y`) | `Y` | `Y` | — |
+| Paste OS clipboard **with** formatting (outline structure / multi-paragraph split) | `p` | `Cmd/Ctrl+V` | paste |
+| Paste OS clipboard **without** formatting (raw text, single block) | `P` | `Cmd/Ctrl+Shift+V` | — |
 | Open `[[ref]]` / `#tag` / `((blk-…))` under cursor | `Enter` | `Enter` | tap |
 | New block below + Insert | `o` | `o` | toolbar `+` |
 | New block above + Insert | `O` | `O` | — |

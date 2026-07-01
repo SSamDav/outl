@@ -290,7 +290,11 @@ pub fn tokenize(text: &str) -> Vec<InlineTok<'_>> {
     let mut idx = 0usize;
 
     while idx < text.len() {
-        if let Some((tok, consumed)) = match_one(&text[idx..]) {
+        // The char just before `idx` decides whether a `_` here can open
+        // emphasis (CommonMark forbids intra-word `_`). `None` at the
+        // start of the run counts as "not alphanumeric" → can open.
+        let prev = text[..idx].chars().next_back();
+        if let Some((tok, consumed)) = match_one(&text[idx..], prev) {
             if idx > plain_start {
                 out.push(InlineTok::Plain(&text[plain_start..idx]));
             }
@@ -413,7 +417,7 @@ pub fn byte_index_for_char(s: &str, char_index: usize) -> usize {
 
 // --- private matchers ----------------------------------------------------
 
-fn match_one(s: &str) -> Option<(InlineTok<'_>, usize)> {
+fn match_one(s: &str, prev: Option<char>) -> Option<(InlineTok<'_>, usize)> {
     if let Some(out) = try_page_ref(s) {
         return Some(out);
     }
@@ -430,7 +434,7 @@ fn match_one(s: &str) -> Option<(InlineTok<'_>, usize)> {
     if let Some(out) = try_bold(s) {
         return Some(out);
     }
-    if let Some(out) = try_bold_under(s) {
+    if let Some(out) = try_bold_under(s, prev) {
         return Some(out);
     }
     if let Some(out) = try_strike(s) {
@@ -439,7 +443,7 @@ fn match_one(s: &str) -> Option<(InlineTok<'_>, usize)> {
     if let Some(out) = try_italic_star(s) {
         return Some(out);
     }
-    if let Some(out) = try_italic_under(s) {
+    if let Some(out) = try_italic_under(s, prev) {
         return Some(out);
     }
     if let Some(out) = try_code(s) {
@@ -612,9 +616,14 @@ fn try_bold(s: &str) -> Option<(InlineTok<'_>, usize)> {
 /// `__bold__` — CommonMark treats double-underscore the same as `**`:
 /// strong emphasis (bold), not italic. Must be checked **before**
 /// [`try_italic_under`] so the double form wins.
-fn try_bold_under(s: &str) -> Option<(InlineTok<'_>, usize)> {
+fn try_bold_under(s: &str, prev: Option<char>) -> Option<(InlineTok<'_>, usize)> {
+    // Same intra-word rule as italic: `__` preceded by an alphanumeric
+    // doesn't open strong emphasis.
+    if prev.is_some_and(|c| c.is_alphanumeric()) {
+        return None;
+    }
     let rest = s.strip_prefix("__")?;
-    let close = rest.find("__")?;
+    let close = closing_underscore(rest, 2)?;
     let inner_str = &rest[..close];
     if inner_str.is_empty() || inner_str.contains('\n') || inner_str.starts_with('_') {
         return None;
@@ -670,9 +679,16 @@ fn try_italic_star(s: &str) -> Option<(InlineTok<'_>, usize)> {
     ))
 }
 
-fn try_italic_under(s: &str) -> Option<(InlineTok<'_>, usize)> {
+fn try_italic_under(s: &str, prev: Option<char>) -> Option<(InlineTok<'_>, usize)> {
+    // CommonMark: `_` does not open emphasis intra-word. A `_`
+    // immediately preceded by an alphanumeric (`inc_lag1`,
+    // `prod.ml_atendimento`, `databricks_2_train`) is a literal
+    // underscore, never an italic opener — `*` is the intra-word marker.
+    if prev.is_some_and(|c| c.is_alphanumeric()) {
+        return None;
+    }
     let rest = s.strip_prefix('_')?;
-    let close = rest.find('_')?;
+    let close = closing_underscore(rest, 1)?;
     let inner_str = &rest[..close];
     if inner_str.is_empty() || inner_str.contains('\n') {
         return None;
@@ -684,6 +700,28 @@ fn try_italic_under(s: &str) -> Option<(InlineTok<'_>, usize)> {
         },
         1 + close + 1,
     ))
+}
+
+/// Find the byte offset (within `rest`, the text after the opening
+/// run) of a closing underscore run of `run_len` (`1` for italic, `2`
+/// for bold) that is **not** intra-word — i.e. not directly followed by
+/// an alphanumeric. Intra-word `_`s are skipped so `_a_b_` still closes
+/// at the last underscore, and identifiers like `chamados_lag1` never
+/// supply a spurious closer. Returns `None` if no valid closer exists.
+fn closing_underscore(rest: &str, run_len: usize) -> Option<usize> {
+    let needle = if run_len == 2 { "__" } else { "_" };
+    let mut search = 0usize;
+    loop {
+        let rel = rest[search..].find(needle)?;
+        let abs = search + rel;
+        let after = &rest[abs + run_len..];
+        if after.chars().next().is_some_and(|c| c.is_alphanumeric()) {
+            // Intra-word underscore — not a valid closer; keep scanning.
+            search = abs + 1;
+            continue;
+        }
+        break Some(abs);
+    }
 }
 
 fn try_code(s: &str) -> Option<(InlineTok<'_>, usize)> {

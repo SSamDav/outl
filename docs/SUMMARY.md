@@ -15,6 +15,7 @@
 ## Editor
 
 * [TUI manual](tui.md)
+* [Paste](paste.md)
 * [Theming](theming.md)
 * [Configuration](config.md)
 * [Shortcuts](shortcuts.md)

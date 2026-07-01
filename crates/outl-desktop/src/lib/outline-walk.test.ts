@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import type { BlockNode } from "@outl/shared/api/types";
 
 import {
+  flattenAll,
+  flattenParents,
   flattenVisible,
   isInVisualRange,
   nextVisibleId,
   previousVisibleId,
   visualRangeIds,
+  visualRangeSet,
 } from "./outline-walk";
 
 function block(
@@ -99,8 +102,11 @@ describe("previousVisibleId", () => {
     block("c"),
   ];
 
-  it("clamps at the top (no wrap)", () => {
-    expect(previousVisibleId("a", tree)).toBe("a");
+  it("returns null at the top — never the current block (no wrap)", () => {
+    // Must be null, not "a": returning the current (top) block left the
+    // cursor on the very block a caller was about to delete, and the new
+    // block then landed under the trash root (`o`-after-delete-all crash).
+    expect(previousVisibleId("a", tree)).toBeNull();
   });
 
   it("skips children of the collapsed parent on the way up", () => {
@@ -145,5 +151,60 @@ describe("visualRangeIds / isInVisualRange", () => {
   it("returns false when range is invalid", () => {
     expect(isInVisualRange("a", null, "b", tree)).toBe(false);
     expect(isInVisualRange("a", "ghost", "b", tree)).toBe(false);
+  });
+});
+
+describe("flattenAll", () => {
+  it("includes children of collapsed nodes (unlike flattenVisible)", () => {
+    // The whole reason flattenAll exists: zR / cursor-pruning must see
+    // blocks hidden under a folded parent, which flattenVisible skips.
+    const tree: BlockNode[] = [
+      block("a", { collapsed: true, children: [block("a1"), block("a2")] }),
+      block("b"),
+    ];
+    expect(flattenVisible(tree)).toEqual(["a", "b"]);
+    expect(flattenAll(tree)).toEqual(["a", "a1", "a2", "b"]);
+  });
+
+  it("is empty for an empty outline", () => {
+    expect(flattenAll([])).toEqual([]);
+  });
+});
+
+describe("flattenParents", () => {
+  it("includes only nodes with children, skipping leaves", () => {
+    // zM (fold-all) targets parents only — folding a leaf writes a
+    // SetCollapsed op that would make future children appear collapsed.
+    const tree: BlockNode[] = [
+      block("a", { children: [block("a1", { children: [block("a11")] })] }),
+      block("b"),
+    ];
+    // a and a1 are parents; a11 and b are leaves.
+    expect(flattenParents(tree)).toEqual(["a", "a1"]);
+  });
+
+  it("descends into collapsed parents too", () => {
+    const tree: BlockNode[] = [
+      block("a", { collapsed: true, children: [block("a1", { children: [block("a11")] })] }),
+    ];
+    expect(flattenParents(tree)).toEqual(["a", "a1"]);
+  });
+});
+
+describe("visualRangeSet", () => {
+  const tree: BlockNode[] = [block("a"), block("b"), block("c"), block("d")];
+
+  it("builds the inclusive set of ids between anchor and cursor", () => {
+    expect(visualRangeSet("b", "d", tree)).toEqual(new Set(["b", "c", "d"]));
+  });
+
+  it("orders anchor + cursor regardless of direction", () => {
+    expect(visualRangeSet("d", "b", tree)).toEqual(new Set(["b", "c", "d"]));
+  });
+
+  it("is null when either endpoint is unset or off-outline", () => {
+    expect(visualRangeSet(null, "b", tree)).toBeNull();
+    expect(visualRangeSet("b", null, tree)).toBeNull();
+    expect(visualRangeSet("b", "ghost", tree)).toBeNull();
   });
 });

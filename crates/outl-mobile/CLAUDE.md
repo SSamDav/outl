@@ -24,7 +24,7 @@ outl-mobile (this crate)
    │       ├── mod.rs
    │       ├── workspace.rs        (workspace_stats, reload_workspace)
    │       ├── page.rs             (list_all_pages / search_pages / search_persons / outl_emoji_search / open_* / *_day / resolve_ref / legacy compat shims)
-   │       ├── block.rs            (create_block / edit_block / toggle_todo / toggle_quote / delete_block / indent_block / outdent_block / move_block_* / set_block_collapsed / paste_markdown_at)
+   │       ├── block.rs            (create / edit / toggle_todo / toggle_quote / delete / indent / outdent / move_* / set_collapsed / paste_markdown_at / copy_markdown)
    │       ├── peers.rs            (outl_peer_list / outl_peer_remove — read/edit <workspace>/.outl/peers.json, no workspace lock)
    │       ├── plugin.rs           (plugin_list / plugin_run / plugin_sync_hooks — thin shims over PluginService)
    │       └── exec.rs             (run_code_block — thin shim over outl_actions::exec::run_code_block)
@@ -207,8 +207,12 @@ Three surfaces, one policy.
 
 ## Paste from external apps
 
-The textarea in `BlockRow.tsx` intercepts paste events whose payload looks like a bullet list (`@outl/shared/paste::looksLikeOutline`) and routes the text to `outl_actions::paste_markdown` via the `paste_markdown_at` Tauri command.
-Plain text falls through to the browser's default splice so a one-off URL or code snippet still pastes the way the user expects.
+The textarea in `BlockRow.tsx` intercepts paste events (with formatting only — mobile has no `Cmd+Shift+V`).
+A rich clipboard (`text/html`: Slack, Docs, Notion) converts to outl markdown via `htmlToOutlMarkdown` (`@outl/shared/paste`, Turndown), so pasted **bold** / links / lists survive.
+Plain text routes to `outl_actions::paste_markdown` (`paste_markdown_at`) when `looksLikeOutline` (bullets) **or** `hasMultipleParagraphs` (blank-line paragraphs) is true.
+Multi-paragraph plain text splits into one block per paragraph; single-paragraph falls through to the browser's default splice.
+
+`create_block` has a **stale-anchor fallback**: if `after_id` is not in the tree (`NotInTree`), the block is appended at the end of the page instead of returning an error (mirrors the desktop fix).
 
 ## Code execution (`run_code_block`)
 
@@ -239,16 +243,7 @@ That drops the desktop's "re-load on root swap" branch: the host loads plugins o
 Capabilities honored: `slash-command` + `op-hook` + `ui-render` + `toolbar-button` + `content-transformer:text` + `content-transformer:rich` (no `keybinding` — no chord surface on mobile).
 Each must be declared in `client_capabilities()` (`plugin_service.rs`); the host gates contributions on the client∩plugin intersection.
 Dropping `ToolbarButton` silently empties `toolbar_buttons("mobile")`; dropping either transformer cap silently filters `transformers()` (a custom-language fence then renders as plain code).
-Tauri commands in `commands/plugin.rs` have the **identical shape to desktop**:
-
-| Command | Returns |
-|---|---|
-| `plugin_list` | `Vec<PluginCommandDto>` |
-| `plugin_toolbar` | `Vec<ToolbarButtonDto>` (`plugin_id` / `command_id` / `icon` / `title?`) |
-| `plugin_transformers` | `Vec<TransformerDto>` (`plugin_id` / `lang` / `kind`) |
-| `plugin_transform(plugin_id, lang, input)` | `Option<TransformResultDto>` (`kind` / `content`; `None` = transformer declined → plain fence) |
-| `plugin_run(plugin_id, command_id, page_id?)` | `PluginRunReply` (`applied` / `notifications` / `errors` / `views` / `view?`) |
-| `plugin_sync_hooks(page_id?)` | `PluginSyncReply` (`views` + `view?` — view only when a hook mutated) |
+Tauri commands in `commands/plugin.rs` have the **identical shape to desktop** — see [`outl-desktop/CLAUDE.md` → Plugins](../outl-desktop/CLAUDE.md#plugins) for the full command table.
 
 Op-hooks fire at a single post-mutation point: `Journal.tsx`'s `commitEdit` calls `pluginSyncHooks(pid)` after an edit lands.
 One call dispatches every op since the last sweep, so it also catches structural ops (indent / move / delete).

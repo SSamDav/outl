@@ -5,8 +5,49 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ## [Unreleased]
 
+### Added
+
+- **Paste with formatting now brings rich clipboard formatting across (bold, italic, links, lists) on the GUI clients.**
+  Copying a formatted message — a Slack post, a Google Doc paragraph, a Notion block, a Gmail draft — puts the bold/italic/links/lists on the clipboard's `text/html` flavour; the `text/plain` flavour is stripped of them.
+  The desktop and mobile paste used to read only `text/plain`, so a pasted Slack message arrived flat.
+  It now reads `text/html` first and converts it to outl markdown (via **Turndown**, tuned for the outl dialect: `*italic*` not `_italic_`, `- ` bullets, `~~strike~~`, and Slack `:emoji:` kept from the image alt text), then routes it through the same paste pipeline — so the formatting and the bullet structure survive.
+  Google Docs (and other editors that encode weight as inline CSS) are handled too: a `font-weight:700` span becomes `**bold**`, and the `<b style="font-weight:normal">` wrapper Docs wraps the whole payload in no longer bolds the entire block.
+  Plain text with no richer HTML behaves exactly as before.
+  The converter lives once in `@outl/shared/paste` (`htmlToOutlMarkdown`) so both GUI clients stay identical.
+- **Paste with / without formatting, with explicit chords per client.**
+  "With formatting" routes the clipboard through the conversion pipeline: outline syntax (Roam `{{[[TODO]]}}`, GitHub `- [ ]`, Logseq) is normalized to the outl dialect, and **plain multi-paragraph text is split into one block per paragraph** — a pasted chat reply or email lands as a readable outline instead of one wall-of-text block (blank line = paragraph break; soft line wraps stay in one block).
+  "Without formatting" splices the raw clipboard text into the current block, no conversion, no splitting.
+  Desktop: `Cmd/Ctrl+V` = with formatting, `Cmd/Ctrl+Shift+V` = without.
+  TUI: `p` = with formatting, `Shift+P` = without (both read the OS clipboard now; the old `p`/`P` yank-register paste is folded into this since copy mirrors the register to the clipboard).
+  Mobile: paste is always with formatting.
+- **Copy a block selection as clean markdown to the OS clipboard, in every client (issue #114).**
+  Copying out of outl used to be a mess — selecting a block in the TUI with the terminal's mouse copied the on-screen tree guides (`│ `), bullets, and fold markers, so pasting elsewhere produced garbage.
+  Now every yank/copy writes the **canonical outl markdown** for the selection (each block plus its subtree) to the clipboard, so it re-pastes into outl as the same tree and reads as a tidy bullet list anywhere else.
+  TUI: `yy` / `Y` / Visual `y` write the markdown to the clipboard via `arboard` **and** an OSC 52 escape, so it reaches the clipboard over SSH, inside tmux, and in Chrome OS **Crostini** where `arboard` has no display server (the in-app yank register that `p`/`P` reads is still filled too).
+  Desktop: `Y` / Visual `y` copy the selection as markdown via `navigator.clipboard`.
+  Mobile: the long-press **Copy** action copies the block and its subtree as markdown instead of a single block's raw text.
+  A Visual range spanning a parent and one of its children no longer duplicates the child — the shared serializer drops any block whose ancestor is also selected.
+  This is the copy-out inverse of the existing paste-in conversion, so the two round-trip; the serializer lives once in `outl_actions::copy_markdown` and every client wraps it.
+- **Opt-in mouse support in the TUI — new `[tui] mouse_capture` config key.**
+  Set `[tui] mouse_capture = true` in `~/.config/outl/config.toml` and the TUI captures the mouse: the scroll wheel moves the selection, a click selects the block under the pointer, and a drag selects a range that is copied to the clipboard as markdown on release.
+  Default `false`, and deliberately so — capturing the mouse disables the terminal's own text selection (selecting a URL, copying a single word), which is muscle memory for many terminal users.
+  The keyboard yank copies markdown to the clipboard regardless of this flag.
+
 ### Fixed
 
+- **Underscores inside a word no longer render as italics.**
+  The inline tokenizer paired any `_…_` as emphasis, so pasted identifiers like `chamados_chat`, `inc_lag1`, `prod.ml_atendimento`, or `databricks_2_train` rendered half-slanted.
+  outl now follows CommonMark: `_` only opens or closes emphasis at a word boundary, never intra-word (`*` stays the intra-word marker).
+  A standalone `_italic_` still works.
+- **`o` / new-line no longer errors with "block … is not in the tree" after a background reload.**
+  On the desktop, a peer-driven reload (`peer-ops-changed`) replaced the outline without clearing the editing / selection cursor, so a block being edited could keep an id the reload had re-materialized or dropped — the next edit or new block then hit "block … is not in the tree".
+  The reload now prunes a stale `editingBlockId` / `selectedBlockId` against the fresh outline, and `create_block` (desktop + mobile) falls back to appending at the page end if its anchor is gone.
+- **Pasting into a freshly-created empty block no longer errors with "block … is not in the tree".**
+  A block created with `o` (or a new line) carries only an `Op::Create`, no `Op::Edit`, so it has no materialized text yet — and the caret-paste path guarded the host's existence on `block_text`, which returns `None` for a text-less block, so pasting into a brand-new empty block was rejected as if the block didn't exist.
+  The paste (with **and** without formatting) now checks the tree for the block and treats a missing text as empty, so it grafts into the new block on desktop and mobile.
+- **Desktop error messages surface as a top-right toast instead of a hidden bottom banner.**
+  The error surface used to render a full-width banner at the base of the outline, where the fixed bottom-left chrome cluster painted over its left edge — the message was half-covered.
+  Errors now appear as a floating toast in the top-right notification corner, above every chrome element, with nothing overlapping it.
 - **Journal date and status-line clock honour a configured timezone — new `[calendar] timezone` config key.**
   The journal's "today" and the TUI clock used to call `chrono::Local::now()`, which trusts the operating system's local timezone.
   In containers and Chrome OS **Crostini** the OS clock runs in UTC regardless of where the user is, so the date landed on the wrong day near midnight and the clock read an hour off (issue #107).

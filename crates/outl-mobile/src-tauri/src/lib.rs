@@ -51,15 +51,15 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tracing::info;
 
 use crate::commands::{
-    add_block, create_block, date_title, delete_block, edit_block, exec, indent_block,
-    list_all_pages, list_outline, move_block_down, move_block_up, next_day, open_journal_for,
-    open_page_by_slug, open_ref, open_today_journal, outdent_block, outl_emoji_search,
-    outl_peer_list, outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove, outl_peer_status,
-    outl_sync_now, paste_markdown_at, plugin_install_official, plugin_list, plugin_registry_list,
-    plugin_run, plugin_set_enabled, plugin_sync_hooks, plugin_toolbar, plugin_transform,
-    plugin_transformers, plugin_uninstall, previous_day, reload_workspace, resolve_ref,
-    search_pages, search_persons, set_block_collapsed, today_slug_cmd, toggle_quote, toggle_todo,
-    workspace_stats,
+    add_block, copy_markdown, create_block, date_title, delete_block, edit_block, exec,
+    indent_block, list_all_pages, list_outline, move_block_down, move_block_up, next_day,
+    open_journal_for, open_page_by_slug, open_ref, open_today_journal, outdent_block,
+    outl_emoji_search, outl_peer_list, outl_peer_pair_host, outl_peer_pair_join, outl_peer_remove,
+    outl_peer_status, outl_sync_now, paste_markdown_at, plugin_install_official, plugin_list,
+    plugin_registry_list, plugin_run, plugin_set_enabled, plugin_sync_hooks, plugin_toolbar,
+    plugin_transform, plugin_transformers, plugin_uninstall, previous_day, reload_workspace,
+    resolve_ref, search_pages, search_persons, set_block_collapsed, today_slug_cmd, toggle_quote,
+    toggle_todo, workspace_stats,
 };
 use crate::plugin_service::PluginService;
 use crate::state::AppState;
@@ -279,6 +279,7 @@ pub fn run() {
             move_block_down,
             set_block_collapsed,
             paste_markdown_at,
+            copy_markdown,
             reload_workspace,
             // Peer / device management
             outl_peer_list,
