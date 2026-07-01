@@ -189,24 +189,28 @@ Frontend suites today: `src/setup.test.ts` (scaffold smoke — `@outl/shared` al
 `src/lib/chord-format.test.ts`,
 `src/lib/markdown-wrap.test.ts`,
 `src/lib/outline-walk.test.ts`,
-and `src/lib/action-handlers.test.ts` (regression tests for the `OpenRefUnderCursor` handler — Normal-mode `Enter` enters Insert on the selected block even when it carries a `[[ref]]`,
-and only a backlink-row selection opens the source page; pins #70).
+and `src/lib/action-handlers.test.ts` — `OpenRefUnderCursor` regression (`Enter` edits the block; backlink rows open the source; pins #70).
+Same file smoke-tests the block clipboard (cut arms `blockClipboard`; paste routes cut → `moveBlockAfter`, copy → `pasteBlockAfter`).
 
 ## Shortcuts
 
 The full catalog lives in **`crates/outl-shortcuts`** (single source of truth, also consumed by the TUI).
 The desktop fetches it via the `list_shortcut_bindings` Tauri command on boot and wires every `Action` through `lib/action-handlers.ts`.
 
-Two of these chords also have **visible icon affordances** in a fixed bottom-left cluster (`components/ChromeToggleBar.tsx`, mounted by `AppShell`, VS Code activity-bar convention):
+Two of these chords also have **visible icon affordances** in a fixed bottom-left cluster (`components/ChromeToggleBar.tsx`, mounted by `AppShell`):
 the **sidebar toggle** (`◫`, mirrors `Cmd/Ctrl+Shift+E`) and the **shortcuts-help toggle** (`?`, mirrors `?` / `Cmd/Ctrl+/`).
-They carry no business logic — clicking flips the same `appState.sidebarOpen` / `appState.helpOpen` store signal the dispatcher flips, so button and keyboard stay in sync.
-The cluster floats over the main pane on an elevated, bordered surface (clear contrast against page content; active toggle inverts to the accent color), so the sidebar button stays reachable even after the left pane is hidden.
+They carry no business logic — clicking flips the same store signal the dispatcher flips, so button and keyboard stay in sync.
+The cluster floats over the main pane on an elevated, bordered surface (active toggle inverts to the accent color), so the sidebar button stays reachable even after the left pane is hidden.
 
 ### OS-standard chrome and undo / redo
 
-The full chord tables live in [`docs/shortcuts.md`](../../docs/shortcuts.md) — don't duplicate them here.
+The full per-chord table is in [`docs/shortcuts.md`](../../docs/shortcuts.md) — the single source of truth, shared with the TUI.
+Desktop-specific: `Cmd/Ctrl+Shift+X` runs the focused / selected code block (plain `Cmd/Ctrl+X` is OS cut / view-mode block cut); `Cmd/Ctrl+Shift+Enter` commits + creates a sibling below, caret-aware inside a textarea (see the Vim parity note).
 
-Undo/redo is deliberately **Normal**, not Global: with a textarea focused the chord falls through to the webview (the in-flight draft is the textarea's own undo domain), and a Global binding would `preventDefault` it away.
+### Undo / redo (Normal mode — fire when no textarea is focused)
+
+Chords (`Cmd/Ctrl+Z` undo, `Cmd/Ctrl+Shift+Z` redo, `u` / `Ctrl+R` vim spelling) live in [`docs/shortcuts.md`](../../docs/shortcuts.md).
+Deliberately **Normal**, not Global: with a textarea focused the chord falls through to the webview (the in-flight draft is the textarea's own undo domain), and a Global binding would `preventDefault` it away.
 History is **block-level**: each mutation that goes through `finish_in_page` (edit, create, indent / outdent, move, delete, TODO / quote toggle, paste)
 pushes the page's pre-mutation `.md` render onto a bounded per-page stack (`outl_actions::history::HistoryStacks`);
 undo restores the snapshot through `outl_md::reconcile_md`, so the restore is itself ops in the log — the op log stays the source of truth, nothing is rewritten.
@@ -214,7 +218,6 @@ Fold toggles (`set_block_collapsed`) bypass `finish_in_page` and are not undoabl
 Invalidation is **surgical**: a workspace **switch** clears every stack,
 but a peer-driven **reload** (`peer-ops-changed` → `reload_workspace`) drops only the stacks of pages whose projection actually changed across the reload — restoring one of those would silently revert the peer's edits.
 Pages the peer didn't touch keep their full undo depth.
-(The first cut cleared everything on every reload, which capped `Cmd+Z` at one step whenever the TUI was open on the same workspace — every TUI write fires `peer-ops-changed`.)
 
 ### Inline markdown (Insert mode — fire when a textarea is focused)
 
@@ -224,15 +227,9 @@ Implementation lives in `lib/markdown-wrap.ts`: each handler reads `document.act
 
 ### Paste (with and without formatting)
 
-`Cmd/Ctrl+V` = paste **with formatting** (`paste_markdown_at`).
-Reads `text/html` first.
-A rich clipboard (Slack, Docs, Notion, Gmail) is converted to outl markdown via `htmlToOutlMarkdown` (`@outl/shared/paste`, Turndown engine).
-It routes to the backend whenever the conversion adds formatting the `text/plain` lacks — so pasted **bold** / links / lists survive.
-Otherwise falls back to `text/plain` and routes when `looksLikeOutline` or `hasMultipleParagraphs` is true; multi-paragraph plain text → one block per paragraph; single-line → native splice.
-
-`Cmd/Ctrl+Shift+V` = paste **without formatting** (`paste_plain_at` → `outl_actions::paste::paste_plain`).
-Raw text as one block; no normalisation.
-Fires `onPastePlain` up through `BlockCallbacks` → `OutlineView`.
+User-facing behaviour lives in [`docs/paste.md`](../../docs/paste.md).
+`Cmd/Ctrl+V` (with formatting, `paste_markdown_at`) reads `text/html`, converts a rich clipboard via `htmlToOutlMarkdown` (`@outl/shared/paste`, Turndown), and routes to the backend on added formatting or `looksLikeOutline` / `hasMultipleParagraphs`.
+`Cmd/Ctrl+Shift+V` (without formatting, `paste_plain_at` → `paste_plain`) inserts raw text as one block via `onPastePlain`.
 
 `create_block`: stale `after_id` (`NotInTree`) → append at page end (fixes `o`-key crash after peer reload).
 
@@ -278,23 +275,27 @@ This section captures only the **architectural decisions** a contributor needs t
   Mirrors `outl-tui`'s `collect_collapse_candidates` so the op count matches across clients.
 
 - **`A` (`EnterInsertAtEnd`) routes through `appState.caretIntent`.**
-  The handler sets `caretIntent: "end"` *before* `editingBlockId`; `<BlockRow />`'s `createEffect` reads it on mount, applies `setSelectionRange`, clears the signal.
-  (Poking the textarea via `queueMicrotask` after flipping `editingBlockId` was racey — the `<Show>`-swapped DOM node wasn't guaranteed to exist.)
-  Same hook for any future caret-intent gesture.
+  The handler sets `caretIntent: "end"` *before* `editingBlockId`; `<BlockRow />`'s `createEffect` reads it on mount, applies `setSelectionRange`, clears the signal (poking the textarea via `queueMicrotask` after flipping `editingBlockId` raced).
 
 - **Visual highlight uses a memoised `Set<id>` at the parent, not a per-row predicate.**
-  `<OutlineView />` builds `visualSet = createMemo(() => visualRangeSet(...))` once per change; `<BlockRow />` answers `props.visualSet?.has(id) ?? false` in O(1) (`null` outside vim-visual → short-circuit).
-  The old per-row `isInVisualRange` rebuilt `flattenVisible` each call (O(N²)/keystroke); it survives in `lib/outline-walk.ts` for unit tests only — **no render path calls it**.
+  `<OutlineView />` builds `visualSet = createMemo(() => visualRangeSet(...))` once per change; `<BlockRow />` answers `props.visualSet?.has(id) ?? false` in O(1).
+  The old per-row `isInVisualRange` (O(N²)/keystroke) survives in `lib/outline-walk.ts` for unit tests only — **no render path calls it**.
 
 - **Char-cursor nudge is one shared handler.**
-  All 10 char-cursor catalog entries (`x` `X` `D` `C` `s` `r` `~` `e` `f` `F`) point at `charCursorNudge`.
-  One source of truth means the message can't drift between catalog entries.
+  All 10 char-cursor catalog entries (`x` `X` `D` `C` `s` `r` `~` `e` `f` `F`) point at `charCursorNudge`, so the message can't drift between them.
 
-- **`Y` / Visual `y` copy to the OS clipboard** via `copy_markdown` + `navigator.clipboard.writeText` (filling `yankRegister` too; paste-in `p`/`P` is deferred — target-position design call).
+- **`Y` / Visual `y` copy to the OS clipboard** via `copy_markdown` + `navigator.clipboard.writeText` (fills `yankRegister` too; paste-in `p`/`P` deferred).
+
+- **`NewBlockAbove` (`O`) uses `beforeId`, not a post-creation move walk.**
+  `createBlock({ beforeId: anchor })` → `create_before` (floor-slot swap in core); never reintroduce the old create-at-tail + `moveBlockDown`-loop.
+  `Cmd/Ctrl+Shift+Enter` is caret-aware in `BlockRow`'s keydown (col 0 → *before*, past col 0 → *below*); `stopImmediatePropagation` preempts the catalog's create-below binding.
+
+- **Block clipboard: view-mode cut/copy/paste of a whole block** (chords: [`docs/shortcuts.md`](../../docs/shortcuts.md)).
+  **Normal**-mode only; `appState.blockClipboard` = `{ kind: "cut", nodeId } | { kind: "copy", markdown }`, no `pageId` (backend resolves the page via `enclosing_page_id`).
+  Cut is one identity-preserving `Op::Move` (`block::move_after`, cross-page, self-subtree rejected); copy duplicates via `paste_block_after` with fresh ids.
 
 - **Path to enable char-cursor ops.**
-  Add a visible Normal-mode caret painted by `<BlockRow />` (model change), then move the 10 blocked handlers to real implementations.
-  Separate PR.
+  Add a visible Normal-mode caret painted by `<BlockRow />`, then move the 10 blocked handlers to real implementations (separate PR).
 
 ### `Enter` outside a textarea (Normal mode)
 

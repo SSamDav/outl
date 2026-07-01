@@ -105,6 +105,9 @@ A binding that only the TUI cares about still lives here (with `Mode::Normal` / 
 
 If you find yourself wanting two different actions on the same chord across modes, the catalog already supports it — just add two `Binding` rows with different `mode` fields and the `no_duplicate_chord_in_same_mode` test will let them through.
 `Cmd+Shift+X` ships exactly that split today: `WrapStrike` in Insert (textarea focused) and `RunCodeBlock` in Global — inside a textarea the mode-specific row wins, everywhere else the Global one fires.
+`Cmd+Shift+Enter` is a second example (issue #92): `CommitAndContinue` in Insert (commit the edit, start the next block) vs. `NewBlockBelow` in Normal (view mode — create a sibling below without a `vim_mode` requirement).
+It is also dual-spelled per OS — `Cmd+Shift+Enter` (META) and `Ctrl+Shift+Enter` (CTRL) — bound twice in each mode because the desktop adapter never rewrites `Cmd`↔`Ctrl`, the same two-row pattern `Cmd/Ctrl+P` uses.
+Both splits are pinned by tests (`cmd_shift_x_splits_between_insert_and_global`, `cmd_shift_enter_splits_between_insert_and_normal`) so a future reorder of `default_bindings()` can't silently collapse them.
 
 **`Cmd+Z` / `Cmd+X` are the canonical "don't shadow the OS" examples:**
 
@@ -112,6 +115,23 @@ If you find yourself wanting two different actions on the same chord across mode
   Run-code lives on `Cmd+Shift+X` now.
 - `Cmd/Ctrl+Z` (Undo) and `Cmd/Ctrl+Shift+Z` (Redo) are bound in **Normal**, not Global, so a focused textarea keeps the chord for its own native undo instead of having the dispatcher swallow it.
   They sit next to the vim spellings (`u` / `Ctrl+R`) in the catalog.
+
+**`Cmd+X` / `Cmd+C` / `Cmd+V` are the "OS-native vs. structural" example:**
+
+- `Insert` mode → **no binding**.
+  Inside a block editor the webview's native text cut / copy / paste must win, so the catalog stays silent and the dispatcher lets the keystroke through.
+  A text-editing app that swallowed `Cmd+X` would be hostile, revisiting the old "X for execute" decision.
+- `Normal` (view) mode → `CutBlock` / `CopyBlock` / `PasteBlock` — act on the whole selected block + subtree.
+  These are **`Normal`, not `Global`**: a `Global` binding would shadow the native text cut inside a textarea (the desktop's Insert→Global dispatch fallback).
+  Keep them out of `Global`.
+- The desktop reaches `Normal` via its DOM-detected "nothing focused" state, so these fire in view mode **whether or not `vim_mode` is on** — they're view-mode gestures, not vim gestures.
+- Each is **dual-spelled per OS**: `Cmd+X/C/V` (META) and `Ctrl+X/C/V` (CTRL), plus `Cmd/Ctrl+Shift+↑/↓` for the reorder.
+  Both spellings are bound in `Normal` because the desktop adapter never rewrites `Cmd`↔`Ctrl`.
+  Drop the CTRL row and the chord dead-keys on Linux / Windows, the same two-row pattern `Cmd/Ctrl+Z` uses.
+
+`RunCodeBlock` stays **`Global` `Cmd+Shift+X`**, off plain `Cmd+X` (now cut).
+It vacated `Cmd+X` so the native/structural cut owns it.
+On `Cmd+Shift+X` the `Insert` `WrapStrike` row wins inside a textarea and the `Global` row fires everywhere else, the `Cmd+Shift+X` split described above.
 
 ## Wire format (Tauri / JSON)
 
