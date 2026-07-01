@@ -419,6 +419,7 @@ mod tests {
         let (mut ws, hlc) = new_workspace();
         let a = append_block(&mut ws, &hlc, None, Some("a")).unwrap();
         let a1 = append_block(&mut ws, &hlc, Some(a), Some("a1")).unwrap();
+        let log_before = ws.log().len();
         // Pasting `a` after its own descendant `a1` would create a cycle.
         assert!(matches!(
             move_after(&mut ws, &hlc, a, a1),
@@ -427,6 +428,9 @@ mod tests {
         // Tree is untouched.
         assert_eq!(ws.tree().parent(a), Some(NodeId::root()));
         assert_eq!(ws.tree().parent(a1), Some(a));
+        // No op leaked into the log: the guard rejects before minting a
+        // `LogOp`, so nothing reaches `Workspace::apply`.
+        assert_eq!(ws.log().len(), log_before);
     }
 
     #[test]

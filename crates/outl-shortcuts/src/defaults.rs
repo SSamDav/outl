@@ -430,21 +430,47 @@ pub fn default_bindings() -> Vec<Binding> {
         // so they never shadow the native text cut / copy / paste
         // inside a block editor (Insert mode, where the chord isn't
         // in the catalog and the keystroke reaches the textarea).
+        //
+        // Each is dual-spelled per OS: META (`Cmd`) and CTRL, bound
+        // twice because the desktop adapter never rewrites
+        // `Cmd`↔`Ctrl` — the same two-row pattern `Cmd/Ctrl+Z` and
+        // `Cmd/Ctrl+Shift+Enter` use. Without the CTRL row these
+        // chords fire on macOS only and dead-key on Linux / Windows.
         Binding::new(
             shift_meta_key(Key::Up),
             Normal,
             Action::MoveBlockUp,
-            "Move block up",
+            "Move block up (Cmd+Shift+Up)",
+        ),
+        Binding::new(
+            shift_ctrl_key(Key::Up),
+            Normal,
+            Action::MoveBlockUp,
+            "Move block up (Ctrl+Shift+Up)",
         ),
         Binding::new(
             shift_meta_key(Key::Down),
             Normal,
             Action::MoveBlockDown,
-            "Move block down",
+            "Move block down (Cmd+Shift+Down)",
         ),
-        Binding::new(meta('x'), Normal, Action::CutBlock, "Cut block"),
-        Binding::new(meta('c'), Normal, Action::CopyBlock, "Copy block"),
-        Binding::new(meta('v'), Normal, Action::PasteBlock, "Paste block"),
+        Binding::new(
+            shift_ctrl_key(Key::Down),
+            Normal,
+            Action::MoveBlockDown,
+            "Move block down (Ctrl+Shift+Down)",
+        ),
+        Binding::new(meta('x'), Normal, Action::CutBlock, "Cut block (Cmd+X)"),
+        Binding::new(ctrl('x'), Normal, Action::CutBlock, "Cut block (Ctrl+X)"),
+        Binding::new(meta('c'), Normal, Action::CopyBlock, "Copy block (Cmd+C)"),
+        Binding::new(ctrl('c'), Normal, Action::CopyBlock, "Copy block (Ctrl+C)"),
+        Binding::new(meta('v'), Normal, Action::PasteBlock, "Paste block (Cmd+V)"),
+        Binding::new(
+            ctrl('v'),
+            Normal,
+            Action::PasteBlock,
+            "Paste block (Ctrl+V)",
+        ),
         // `Esc` in view mode cancels a pending cut (snaps the dimmed
         // block back). Reuses `ExitInsert` — a no-op blur otherwise,
         // since Normal mode has no focused textarea.

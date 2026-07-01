@@ -189,8 +189,8 @@ Frontend suites today: `src/setup.test.ts` (scaffold smoke — `@outl/shared` al
 `src/lib/chord-format.test.ts`,
 `src/lib/markdown-wrap.test.ts`,
 `src/lib/outline-walk.test.ts`,
-and `src/lib/action-handlers.test.ts` (regression tests for the `OpenRefUnderCursor` handler — Normal-mode `Enter` enters Insert on the selected block even when it carries a `[[ref]]`,
-and only a backlink-row selection opens the source page; pins #70).
+and `src/lib/action-handlers.test.ts` — `OpenRefUnderCursor` regression (`Enter` edits the block; backlink rows open the source; pins #70).
+Same file smoke-tests the block clipboard (cut arms `blockClipboard`; paste routes cut → `moveBlockAfter`, copy → `pasteBlockAfter`).
 
 ## Shortcuts
 
