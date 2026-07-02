@@ -1,5 +1,8 @@
-//! Yank register and paste. Vim semantics: `yy` copies one block,
-//! Visual `y` copies the range, `p` / `P` paste after / before.
+//! Yank register + copy-to-OS-clipboard. Vim spelling: `yy` copies one
+//! block, Visual `y` copies the range. Every yank writes clean canonical
+//! outl markdown to the OS clipboard (arboard + OSC 52) and mirrors it in
+//! the in-memory register. Pasting (`p` / `P`) reads the **OS clipboard**,
+//! not this register — see `actions/paste.rs`.
 
 use std::io::{IsTerminal, Write};
 

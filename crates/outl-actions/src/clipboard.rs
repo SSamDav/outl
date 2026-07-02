@@ -52,6 +52,11 @@ pub fn copy_markdown(workspace: &Workspace, roots: &[NodeId]) -> String {
     let selected: HashSet<NodeId> = roots.iter().copied().collect();
     let blocks: Vec<OutlineNode> = roots
         .iter()
+        // Skip ids no longer in the tree (a stale/re-minted selection a
+        // client still holds): `build_node` would otherwise emit an empty
+        // `- ` bullet from `block_text(..).unwrap_or_default()`, corrupting
+        // the clipboard with a blank line.
+        .filter(|&&id| workspace.tree().contains(id))
         .filter(|&&id| !has_selected_ancestor(workspace, id, &selected))
         .map(|&id| build_node(workspace, id))
         .collect();
@@ -231,5 +236,17 @@ mod tests {
 
         let copied = copy_markdown(&workspace, &roots_under(&workspace, host));
         assert_eq!(copied, "- task\n  alpha:: 2\n  zeta:: 1\n");
+    }
+
+    #[test]
+    fn stale_ids_not_in_tree_are_skipped_not_blank_bullets() {
+        // A client can hold a selection id that no longer resolves (peer
+        // reload / re-mint). It must be dropped, not serialized as an
+        // empty `- ` bullet.
+        let (mut workspace, hlc) = ws();
+        let live = append_block(&mut workspace, &hlc, None, Some("live")).unwrap();
+        let ghost = NodeId::new(); // never created → not in the tree
+        assert_eq!(copy_markdown(&workspace, &[ghost]), "");
+        assert_eq!(copy_markdown(&workspace, &[live, ghost]), "- live\n");
     }
 }

@@ -143,7 +143,7 @@ It applies these conversions:
 - GitHub `- [ ]` / `- [x]` → `TODO` / `DONE` prefix.
 - Logseq `id::` metadata → stripped.
 - 4-space indent → 2-space indent.
-- Multi-paragraph plain text (paragraphs separated by a blank line) → one block per paragraph.
+- Multi-line plain text (two or more non-blank lines) → one block per non-blank line (blank lines are ignored).
 - Single-paragraph plain text → falls through to the browser/terminal default splice.
 
 **Without formatting** (`Cmd/Ctrl+Shift+V` on desktop, `P` in the TUI; not available on mobile) calls `outl_actions::paste_plain`.
@@ -152,7 +152,7 @@ Use this when the text contains underscores, brackets, or other characters that 
 
 The routing decision uses two helpers from `@outl/shared/paste`:
 `looksLikeOutline` detects bullet structure;
-`hasMultipleParagraphs` detects blank-line-separated paragraphs.
+`hasMultipleParagraphs` is true when the text has two or more non-blank lines (blank lines are ignored).
 Either condition sends the paste to the backend (structured path) on `Cmd/Ctrl+V`.
 
 | Client | With formatting | Without formatting |

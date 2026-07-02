@@ -33,9 +33,9 @@ Pasting back into outl uses `p` (with formatting) or `P` (without formatting) �
 `p` and `P` both read the OS clipboard via `arboard` (`actions/paste.rs`).
 
 `p` — **with formatting.**
-Routes the clipboard text through `outl_actions::paste_markdown` when it looks like a bullet outline or contains multiple blank-line-separated paragraphs.
-Multi-paragraph plain text is split into one block per paragraph.
-Single-paragraph plain text falls through to a native splice at the cursor.
+Routes the clipboard text through `outl_actions::paste_markdown` when it looks like a bullet outline or spans two or more non-blank lines.
+Multi-line plain text is split into one block per non-blank line (blank lines are ignored).
+Single-line plain text falls through to a native splice at the cursor.
 
 `P` — **without formatting.**
 Calls `outl_actions::paste_plain` directly.

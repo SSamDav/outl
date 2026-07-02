@@ -319,11 +319,12 @@ pub(crate) fn paste_plain_at(
 /// returned string to `navigator.clipboard` itself.
 ///
 /// `block_ids` arrives in document order (a single yank, or a Visual
-/// range top-to-bottom); the markdown preserves that order. Unknown /
-/// malformed ids fail the whole call rather than silently dropping a
-/// block from the copy. The heavy lifting lives in
-/// `outl_actions::copy_markdown` (the inverse of `paste_markdown`) so the
-/// TUI and mobile produce byte-identical output.
+/// range top-to-bottom); the markdown preserves that order. A **malformed**
+/// id fails the whole call at parse time; an id that simply isn't in the
+/// tree (stale / re-minted selection) is silently skipped by
+/// `outl_actions::copy_markdown` rather than emitting a blank bullet. That
+/// serializer (the inverse of `paste_markdown`) is shared so the TUI and
+/// mobile produce byte-identical output.
 #[tauri::command]
 pub(crate) fn copy_markdown(
     block_ids: Vec<String>,

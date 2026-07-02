@@ -78,7 +78,8 @@ impl App {
         let inner_left = area.x + 1;
         let inner_right = area.x + area.width.saturating_sub(1);
         let inner_top = area.y + 1;
-        if column < inner_left || column >= inner_right || row < inner_top {
+        let inner_bottom = area.y + area.height.saturating_sub(1);
+        if column < inner_left || column >= inner_right || row < inner_top || row >= inner_bottom {
             return None;
         }
         // Screen row → visual line: undo the top border, add back the
