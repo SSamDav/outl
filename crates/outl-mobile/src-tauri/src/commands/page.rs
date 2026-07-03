@@ -130,6 +130,19 @@ pub(crate) fn open_page_by_slug(
             open_or_create_by_name(ws, &state.hlc, &slug, PageKind::Page).map_err(|e| e.to_string())
         })?,
     };
+    // Project the page's `.md` + sidecar before reading it back.
+    // Without this, a page that was synced from another device exists in
+    // the in-memory CRDT tree (so it appears in search) but its `.md`
+    // file was never written to the new device's disk.
+    // `read_page_outline` does `fs::read_to_string().unwrap_or_default()`,
+    // so a missing file produces an empty outline — the page opens blank.
+    // Mirrors the `open_ref` fix.
+    with_ws_mut(&state, |ws| {
+        if let Err(e) = outl_actions::apply_page_md_with_sidecar(ws, &state.storage_root, id) {
+            eprintln!("open_page_by_slug: apply_page_md_with_sidecar failed for {slug}: {e}");
+        }
+        Ok::<_, String>(())
+    })?;
     with_ws(&state, |ws| {
         build_page_view(ws, &state.storage_root, id).map_err(|e| e.to_string())
     })
