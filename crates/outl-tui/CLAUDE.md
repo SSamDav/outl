@@ -75,6 +75,7 @@ This section captures only the **architectural / TUI-specific behaviour** a cont
   A one-shot enum (mutually exclusive with `pending_chord`) consumed by the next `Char(c)` keystroke.
   Any other keystroke cancels.
 - **`*` / `#` reuse the workspace search.** `search_word_under_cursor` extracts the word the cursor sits on (whitespace-bounded), opens the `/` overlay machinery, accepts the first hit, persists the rest into `last_search` so `n` / `N` walk them.
+- **Sidebar intercept.** With the sidebar open (`\` / `Ctrl+E`), `j` / `k` move the row selection, `Tab` cycles the section (Today / Pinned / Recent / Calendar), and `Enter` opens the focused page. `d` on a **regular page** arms a `delete page '<title>'? y/n` confirmation in the status line (`App::pending_sidebar_delete: Option<PendingSidebarDelete>`); `y` / `Y` confirms and runs `outl_actions::delete_page` + `remove_page_projection` + `spawn_index_rebuild`, navigates to today if the deleted page was current, and announces to peers. Any other key cancels (and is swallowed, matching the `pending_input_op` contract). Calendar rows are a no-op, and journals pinned/recent are excluded — only regular pages can be deleted from the sidebar. The `g d` chord (Normal mode) routes through the same confirmation flow via `App::delete_page_from_chord`: with the sidebar focused it delegates to `sidebar_delete_current`, otherwise it arms the confirmation against the current page (refusing journals).
 - **Visual range capture.**
   Every Visual exit (`Esc`, `y`, `d`) routes through `remember_visual_range` so `g v` can restore the last range.
 
@@ -141,7 +142,7 @@ Every piece of logic that's not strictly about ratatui rendering lives in `outl-
 |-------|------|
 | `outl-core` | Op log, CRDT, storage, workspace |
 | `outl-md` | Parse/render, sidecar, matching, reconcile, **inline tokens (`InlineTok`, `RefTarget`)**, **slugify** |
-| `outl-actions` | UI-agnostic workspace operations (edit, indent, move, toggle TODO, page model, backlinks). **TUI now imports from here** — `cycle_todo`, `split_todo`, and `TodoState` live in `outl-actions`. |
+| `outl-actions` | UI-agnostic workspace operations (edit, indent, move, toggle TODO, page model, backlinks). **TUI now imports from here** — `cycle_todo`, `split_todo`, and `TodoState` live in `outl-actions`, and so does the date slash-command math (`dates::parse_date_arg`, `week_tag`, `days_until_next_weekday`, `journal_ref`); `commands/builtins/dates.rs` keeps only the Insert-mode wiring. |
 | `outl-tui` | Terminal-specific: ratatui mapping, key handling, raw-mode lifecycle |
 | `outl-mobile` (shipping today) | Tauri 2 + Solid: consumes `InlineTok` / `RefTarget` from `outl-md` and renders to JSX. Shares every workspace operation with the TUI via `outl-actions`. |
 | `outl-desktop` (shipping today) | Tauri 2 + Solid for macOS / Linux / Windows. Shares the entire `outl-actions` surface plus the `@outl/shared` TS lib (DTOs, `MarkdownInline`, paste / autocomplete helpers, command wrappers) with mobile. Adds OS-standard shortcuts, `outl-exec` code-block execution, and a cross-platform FS watcher (`notify`) that emits `peer-ops-changed` so the frontend reloads automatically when a peer's `ops-*.jsonl` arrives. |

@@ -287,6 +287,7 @@ They skip the auto-commit step the other commands do, so your in-flight edit sta
 | `/date +1m` | today + 1 month (Jan 31 + 1m → Feb 28/29 — clamped to last day of month) |
 | `/date 5d` | bare `Nd`/`Nw`/`Nm` is treated as positive |
 | `/date 2026-06-15` | absolute ISO date |
+| `/date April 22nd, 2026` | any absolute spelling the shared date parser accepts (`2026/04/22`, `22/04/2026`, `Sept 3rd, 2025`, `22 April 2026`, …) |
 
 Garbage input (`/date nope`, `/date +3x`, invalid date) shows `usage: date +Nd | -Nw | +Nm | YYYY-MM-DD` on the status line.
 
@@ -350,8 +351,19 @@ Hooks are dispatched once per mutation; a hook that itself mutates the workspace
   Press `i` / `Enter` on a backlink to jump to its source page positioned on the referencing block (in-place editing lands in a follow-up).
 - **Status / hint** — mode badge, contextual key reminder, backlink count, status messages.
 
-There is *no* pages sidebar.
-Use `Ctrl+P` (quick switcher) to jump to any page or journal by fuzzy title — the sidebar was redundant with that and ate horizontal space on narrow terminals.
+### Pages sidebar
+
+Toggled by `Ctrl+E` (the desktop-standard "toggle sidebar" chord; `\` was dropped to avoid clashing with it).
+Shows Today / pinned / recent pages and a mini-calendar of journals.
+`j` / `k` move the selection.
+`Tab` cycles the section (Today / Pinned / Recent / Calendar).
+`Enter` opens the focused page.
+`d` on a regular page arms a `delete page '<title>'? y/n` confirmation in the status line.
+`y` confirms, any other key cancels (and is swallowed).
+The `g d` chord (Normal mode) routes through the same confirmation flow: with the sidebar focused it deletes the highlighted row, with the outline focused it deletes the current page.
+Journals are refused in both paths (calendar rows are a no-op; pinned/recent journals are silently skipped).
+On confirm, the page root moves to `NodeId::trash()` via `outl_actions::page::delete`, the `.md` + `.outl` projections are removed, the index is rebuilt, and if the deleted page was the current view the TUI lands on today's journal.
+For fuzzy title jumps without the pane, `Ctrl+P` (quick switcher) still works with the sidebar closed.
 
 ## Parser-warning banner
 

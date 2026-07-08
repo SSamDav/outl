@@ -156,8 +156,9 @@ The TUI ships it natively; the desktop has only a selected block id, so the char
 | Action | TUI | Desktop | Mobile |
 |---|---|---|---|
 | Commit + exit Insert | `Esc` | `Esc` / blur | blur |
-| Newline inside the block (multi-line text) | `Shift+Enter` | `Enter` | `Enter` |
-| Commit + new block (desktop is caret-aware: caret at col 0 → *before* the block / vim `O`; past col 0 → *below*) | `Enter` | `Cmd/Ctrl+Shift+Enter` | `Enter` |
+| Newline inside the block (multi-line text) | `Shift+Enter` | `Shift+Enter` | `Enter` |
+| Commit + new block below | `Enter` | `Enter` | `Enter` |
+| Commit + new block, caret-aware (caret at col 0 → *before* the block / vim `O`; past col 0 → *below*) | — | `Cmd/Ctrl+Shift+Enter` | — |
 | Indent (stay in Insert) | `Tab` | `Tab` | drag |
 | Outdent (stay in Insert) | `Shift+Tab` | `Shift+Tab` | drag |
 | Delete block on empty | `Backspace` on empty | `Backspace` on empty | — |
@@ -185,6 +186,25 @@ TUI + desktop (vim on); mobile has no Visual equivalent yet.
 | Indent range (vim `>`) | `Tab` / `>` | `>` |
 | Outdent range (vim `<`) | `Shift+Tab` / `<` | `<` |
 | Leave Visual (captures range so a follow-up `g v` restores it) | `Esc` | `Esc` |
+
+---
+
+## Page operations
+
+`g d` (Normal mode, "go delete") is the canonical chord for page deletion.
+It lives in the shared `outl-shortcuts` catalog, same `g<action>` family as `g j` (today) / `g x` (execute) / `g p` (pin).
+The chord deletes the focused page (sidebar-highlighted row when the sidebar has focus on the TUI, otherwise the current page).
+Each client confirms before invoking `outl_actions::page::delete`.
+Journals are refused everywhere.
+Clients also expose the action through their native page-list affordance.
+
+| Action | TUI | Desktop | Mobile |
+|---|---|---|---|
+| Delete the focused page (with confirmation) | `g d` (Normal mode) deletes the current page; sidebar `d` deletes the focused sidebar row | `g d` (Normal mode) + hover `×` button on the sidebar row | long-press the row in the page switcher |
+
+The desktop routes `g d` through the same `DeletePage` handler in `action-handlers.ts` (same `window.confirm` + `deletePage(slug)` flow as the `×` button).
+Mobile has no keyboard surface.
+Long-press in the page switcher remains the only trigger on touch devices.
 
 ---
 

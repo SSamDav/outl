@@ -10,6 +10,7 @@ members = [
     "crates/outl-plugins",
     "crates/outl-shortcuts",
     "crates/outl-theme",
+    "crates/outl-tauri-shared",
     "crates/outl-cli",
     "crates/outl-tui",
     "crates/outl-mobile/src-tauri",
@@ -38,6 +39,7 @@ outl-exec = { path = "crates/outl-exec", version = "0.7.0" }
 outl-plugins = { path = "crates/outl-plugins", version = "0.7.0" }
 outl-shortcuts = { path = "crates/outl-shortcuts", version = "0.7.0" }
 outl-theme = { path = "crates/outl-theme", version = "0.7.0" }
+outl-tauri-shared = { path = "crates/outl-tauri-shared", version = "0.7.0" }
 outl-tui = { path = "crates/outl-tui", version = "0.7.0" }
 
 # IDs and time
@@ -51,6 +53,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
 toml = "1.1"
+# Compact binary serialization for snapshots (see docs/storage.md → Snapshots).
+bincode = "1"
 
 # Errors
 thiserror = "2"
@@ -68,7 +72,16 @@ yrs = "0.27"
 # the n0 discovery stack behind the default feature set. Disabling it strips
 # TLS and the endpoint fails to bind. There is no `discovery-n0` feature in
 # 1.0.0 — discovery presets live in `iroh::endpoint::presets`.
-iroh = "1.0.0"
+#
+# `platform-verifier` pulls in `rustls-platform-verifier` so we can delegate
+# relay-TLS validation to the OS keychain via `CaTlsConfig::system()` (see
+# `outl-sync-iroh/src/bind.rs`). Without it iroh's default
+# `CaTlsConfig::EmbeddedWebPki` (Mozilla's bundled roots) rejects any relay cert
+# issued by a custom root CA installed in the OS keychain — e.g. a corporate
+# TLS-inspection proxy — with `invalid peer certificate: UnknownIssuer`, even
+# though macOS / curl / Safari trust it fine. Enabling the feature is NOT enough
+# on its own: `system()` must be passed explicitly (default stays EmbeddedWebPki).
+iroh = { version = "1.0.0", features = ["platform-verifier"] }
 iroh-gossip = "0.101.0"
 
 # Markdown
@@ -91,6 +104,7 @@ fs2 = "0.4"
 
 # Concurrency
 parking_lot = "0.12"
+lru = "0.12"
 
 # Misc
 sha2 = "0.11"
@@ -110,6 +124,7 @@ tauri-plugin-os = "2"
 # Dev
 proptest = "1"
 tempfile = "3"
+libc = "0.2"
 
 [profile.release]
 lto = "thin"

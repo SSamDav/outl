@@ -23,6 +23,12 @@ import type {
   PageView,
   PeerDto,
   PeerStatusDto,
+  PluginCommand,
+  PluginRunReply,
+  PluginSyncHooksReply,
+  PluginToolbarButton,
+  PluginTransformer,
+  PluginTransformResult,
   RegistryItem,
   RunCodeBlockReply,
   WorkspaceSummary,
@@ -38,6 +44,20 @@ export interface EmojiHit {
   shortcode: string;
   glyph: string;
   score: number;
+}
+
+/**
+ * One block match returned by {@link searchBlocks}. Mirrors
+ * `outl_tauri_shared::state::BlockHit`. `handle` is the ref handle
+ * (`blk-XXXXXX`) the caller inserts wrapped in `((…))`; block refs
+ * resolve by handle, never by the display `text`. `text` is a
+ * single-line snippet for the popup label and `source_slug` the page
+ * hosting the block, for context.
+ */
+export interface BlockHit {
+  handle: string;
+  text: string;
+  source_slug: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +101,18 @@ export function searchPersons(query: string): Promise<PageMeta[]> {
  */
 export function searchEmojis(query: string, limit = 8): Promise<EmojiHit[]> {
   return invoke<EmojiHit[]>("outl_emoji_search", { query, limit });
+}
+
+/**
+ * Fuzzy-search block text for the `((…))` block-ref autocomplete.
+ * Empty query returns the most recently created blocks; a non-empty
+ * query ranks case-insensitive substring matches (prefix first, shorter
+ * blocks winning ties). Backed by `outl_md::WorkspaceIndex::search_block_text`
+ * so every client ranks the same way. The caller inserts each hit's
+ * `handle` wrapped in `((…))` — never the display `text`.
+ */
+export function searchBlocks(query: string): Promise<BlockHit[]> {
+  return invoke<BlockHit[]>("search_blocks", { query });
 }
 
 export function openTodayJournal(): Promise<PageView> {
@@ -129,6 +161,23 @@ export function dateTitle(slug: string): Promise<string> {
 
 export function resolveRef(target: string): Promise<PageMeta | null> {
   return invoke<PageMeta | null>("resolve_ref", { target });
+}
+
+/**
+ * Delete a page by slug. The caller MUST confirm before invoking —
+ * this call does not re-prompt. The backend moves the page root to
+ * `NodeId::trash()` (a single `Op::Move`, so the whole subtree goes
+ * with it), drops the on-disk `.md` + `.outl` projection, and
+ * returns a fresh {@link PageView} of **today's journal** so the
+ * caller navigates away from the (now-gone) page in the same
+ * round-trip.
+ *
+ * The op stays in the log forever — deletion converges across
+ * devices through the normal CRDT replay and is theoretically
+ * recoverable from the log (no UI for that exists today).
+ */
+export function deletePage(slug: string): Promise<PageView> {
+  return invoke<PageView>("delete_page", { slug });
 }
 
 export function workspaceStats(): Promise<WorkspaceSummary> {
@@ -492,6 +541,95 @@ function describeHref(href: string): string {
     })
     .join("");
   return cleaned.length > 100 ? `${cleaned.slice(0, 100)}…` : cleaned;
+}
+
+// ── Plugin host ─────────────────────────────────────────────────────
+// Both GUI clients register identical `plugin_list` / `plugin_run` /
+// `plugin_sync_hooks` / `plugin_toolbar` / `plugin_transformers` /
+// `plugin_transform` commands (thin shims over `PluginService` — the
+// Boa host is `!Send`, so it runs on a dedicated thread), so the
+// wrappers live here once. The desktop-only `plugin_keybindings`
+// stays in `outl-desktop/src/lib/api.ts` (mobile has no chord surface).
+
+/**
+ * List every command contributed by a loaded plugin. Empty until the
+ * workspace opens and plugins load (best-effort — never throws on an
+ * empty or failed host).
+ */
+export function pluginList(): Promise<PluginCommand[]> {
+  return invoke<PluginCommand[]>("plugin_list");
+}
+
+/**
+ * Run a plugin command. Pass the currently-open page id so the reply
+ * carries its refreshed `PageView` — the plugin thread re-projects
+ * every page's `.md` before returning (a plugin can move blocks across
+ * pages).
+ */
+export function pluginRun(
+  pluginId: string,
+  commandId: string,
+  pageId: string | null,
+): Promise<PluginRunReply> {
+  return invoke<PluginRunReply>("plugin_run", {
+    pluginId,
+    commandId,
+    pageId,
+  });
+}
+
+/**
+ * Fire the plugins' `onOp` hook sweep after a user mutation. The
+ * reply's `view` is the refreshed `PageView` of `pageId` **only** when
+ * a hook actually mutated the workspace (absent otherwise, so the
+ * caller skips a needless render); `views` carries any `ui-render`
+ * HTML the hooks emitted (the confetti path — present even when
+ * nothing was re-rendered). Best-effort — a host with no op-hook
+ * plugins is a cheap no-op.
+ */
+export function pluginSyncHooks(
+  pageId: string | null,
+): Promise<PluginSyncHooksReply> {
+  return invoke<PluginSyncHooksReply>("plugin_sync_hooks", { pageId });
+}
+
+/**
+ * List every toolbar button a loaded plugin contributes to the client
+ * chrome — one button per entry (glyph = `icon`, tooltip = `title`,
+ * click / tap = {@link pluginRun}). Empty until plugins load
+ * (best-effort — never throws).
+ */
+export function pluginToolbar(): Promise<PluginToolbarButton[]> {
+  return invoke<PluginToolbarButton[]>("plugin_toolbar");
+}
+
+/**
+ * List every content transformer a loaded plugin declared. Load once
+ * per workspace open and match each code fence's language against the
+ * result. Empty until plugins load (best-effort — never throws).
+ */
+export function pluginTransformers(): Promise<PluginTransformer[]> {
+  return invoke<PluginTransformer[]>("plugin_transformers");
+}
+
+/**
+ * Run a content transformer for `lang` against a fence `input` (its
+ * body). Read-only: never mutates the workspace. Resolves to `null`
+ * when the transformer declined or no plugin owns `lang`, otherwise
+ * the `{ kind, content }` descriptor. Cache the result by
+ * `(blockId, body)` — re-run only when the body changes (see
+ * `@outl/shared/plugins/transformer-registry`).
+ */
+export function pluginTransform(
+  pluginId: string,
+  lang: string,
+  input: string,
+): Promise<PluginTransformResult | null> {
+  return invoke<PluginTransformResult | null>("plugin_transform", {
+    pluginId,
+    lang,
+    input,
+  });
 }
 
 // ── Plugin marketplace ──────────────────────────────────────────────

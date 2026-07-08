@@ -86,20 +86,19 @@ crates/outl-desktop/
         ├── main.rs            # binary entry
         ├── lib.rs             # mod decls + run() (registers all 25 commands)
         ├── settings.rs        # settings.json IO + tests
-        ├── state.rs           # AppState, PageView, WorkspaceSummary
-        ├── helpers.rs         # parse_node_id, with_ws*, finish_in_page
-        ├── workspace_open.rs  # open_workspace_at + spawn_workspace_opener
-        ├── plugin_service.rs  # PluginService + dedicated plugin thread (Boa is !Send)
-        ├── plugin_dto.rs      # wire shapes (PluginCommandDto / PluginKeybindingDto / ToolbarButtonDto / PluginRunDto) + From projections
+        ├── state.rs           # AppState + AppHost impl; wire DTOs re-exported from outl-tauri-shared
+        ├── helpers.rs         # re-exports of outl_tauri_shared::helpers + desktop-only undo invalidation
+        ├── workspace_open.rs  # open_workspace_at + spawn_workspace_opener (over shared primitives)
+        ├── plugin_service.rs  # desktop shim: CLIENT id + capability set over outl_tauri_shared::PluginService
         ├── fs_watcher.rs      # notify + debouncer → peer-ops-changed
-        └── commands/
+        └── commands/          # thin #[tauri::command] wrappers over outl_tauri_shared::commands
             ├── mod.rs
-            ├── workspace.rs   # set_workspace, current_workspace, reload, settings, stats
+            ├── workspace.rs   # set_workspace, current_workspace, reload, settings, stats (desktop-only)
             ├── page.rs        # list / search / open / journal nav / resolve_ref
-            ├── block.rs       # create / edit / todo / move / collapsed / paste_markdown_at / paste_plain_at / copy_markdown
-            ├── exec.rs        # run_code_block — thin Tauri adapter over outl_actions::exec::run_code_block (shared with mobile)
-            ├── peers.rs       # outl_peer_list / outl_peer_remove — read/edit <workspace>/.outl/peers.json via outl_sync_iroh::PeersStore
-            └── plugin.rs      # plugin_list / plugin_run / plugin_sync_hooks / plugin_keybindings / plugin_toolbar — thin shims over PluginService
+            ├── block.rs       # create / edit / todo / move / collapsed / paste_* / copy_markdown
+            ├── exec.rs        # run_code_block
+            ├── peers.rs       # outl_peer_list / outl_peer_remove / outl_sync_now
+            └── plugin.rs      # plugin_* shims (+ plugin_keybindings, desktop-only)
 ```
 
 ## First-run onboarding
@@ -129,6 +128,14 @@ Green = at least one iroh peer reachable, orange = none, dim = first probe still
 It derives reachability from `peerStatus()` → `peersOnline()` (`@outl/shared/peers`) — the **same source** the Sync panel and the mobile dot use, so the three never disagree.
 It re-probes on a slow interval and immediately on `peer-ops-changed` (a delivery proves the mesh is up).
 Do not add a second reachability path; `peersOnline` is the one owner.
+
+### Sidebar page deletion
+
+`Sidebar.tsx`'s `<Row>` takes an optional `onDelete` callback; when provided, a `×` button appears on hover (top-right, `opacity-0 → group-hover:opacity-100`).
+`handleDelete(p)` calls `window.confirm(...)`, then `deletePage(slug)` (from `@outl/shared/api/commands`), applies the returned today's-journal view, and refetches the page list.
+Journals are excluded (`p.kind === "journal" ? undefined : ...`) — only regular pages show the affordance.
+The `g d` chord (Normal mode, "go delete") routes through the `DeletePage` case in `action-handlers.ts` — the same `window.confirm` + `deletePage(slug)` flow as the `×` button (the `Action` TS union in `lib/api.ts` carries `| { kind: "DeletePage" }`).
+The backend `delete_page` Tauri command is the shared `outl_tauri_shared::commands::page::delete_page` body — no desktop-specific logic.
 
 ## Blockquote chrome
 
@@ -188,7 +195,6 @@ The Vite dev server runs on **port 1421** so it can coexist with `outl-mobile` (
 Frontend suites today: `src/setup.test.ts` (scaffold smoke — `@outl/shared` alias resolves),
 `src/lib/chord-format.test.ts`,
 `src/lib/markdown-wrap.test.ts`,
-`src/lib/outline-walk.test.ts`,
 and `src/lib/action-handlers.test.ts` — `OpenRefUnderCursor` regression (`Enter` edits the block; backlink rows open the source; pins #70).
 Same file smoke-tests the block clipboard (cut arms `blockClipboard`; paste routes cut → `moveBlockAfter`, copy → `pasteBlockAfter`).
 
@@ -205,7 +211,7 @@ The cluster floats over the main pane on an elevated, bordered surface (active t
 ### OS-standard chrome and undo / redo
 
 The full per-chord table is in [`docs/shortcuts.md`](../../docs/shortcuts.md) — the single source of truth, shared with the TUI.
-Desktop-specific: `Cmd/Ctrl+Shift+X` runs the focused / selected code block (plain `Cmd/Ctrl+X` is OS cut / view-mode block cut); `Cmd/Ctrl+Shift+Enter` commits + creates a sibling below, caret-aware inside a textarea (see the Vim parity note).
+Desktop-specific: `Cmd/Ctrl+Shift+X` runs the focused / selected code block (plain `Cmd/Ctrl+X` is OS cut / view-mode block cut).
 
 ### Undo / redo (Normal mode — fire when no textarea is focused)
 
@@ -238,9 +244,13 @@ User-facing behaviour lives in [`docs/paste.md`](../../docs/paste.md).
 The user-facing chord table lives in [`docs/shortcuts.md`](../../docs/shortcuts.md).
 Load-bearing notes a contributor needs:
 
+- **Plain `Enter` → commit + new sibling below** (`onEnter`, TUI parity).
+  `Shift+Enter` → literal `\n` soft break (issue #119), handled in `BlockRow`'s `handleKeydown` (not the catalog; see the code comment).
 - `Cmd/Ctrl+X` (cut) and `Cmd/Ctrl+Z` (undo) deliberately fall through to the webview — no catalog binding matches inside a textarea.
   Native per-keystroke undo is still broken: the controlled `value={draft()}` binding resets the textarea's undo stack on every keystroke (issue #80).
 - Bracket auto-pairing (`[[`/`((` auto-close, `(`/`[`/`{` auto-pair with caret between, closer step-over, empty-pair collapse on `Backspace`) all live in `@outl/shared/autocomplete` (`autoPairBracket` / `autoDeletePair`, TUI parity).
+- The four inline autocomplete popups (slash / emoji / block-ref / page-ref) share one keyboard contract via `handlePopupNav` (`lib/popup-nav.ts`, unit-tested): arrows cycle, `Enter`/`Tab` with no modifiers accept, `Esc` closes.
+  `Shift+Tab` outdents on every popup now (the page-ref one used to accept it).
 
 ### Vim parity (Normal + Visual)
 
@@ -279,7 +289,7 @@ This section captures only the **architectural decisions** a contributor needs t
 
 - **Visual highlight uses a memoised `Set<id>` at the parent, not a per-row predicate.**
   `<OutlineView />` builds `visualSet = createMemo(() => visualRangeSet(...))` once per change; `<BlockRow />` answers `props.visualSet?.has(id) ?? false` in O(1).
-  The old per-row `isInVisualRange` (O(N²)/keystroke) survives in `lib/outline-walk.ts` for unit tests only — **no render path calls it**.
+  The old per-row `isInVisualRange` (O(N²)/keystroke) survives in `@outl/shared/outline` for unit tests only — **no render path calls it**.
 
 - **Char-cursor nudge is one shared handler.**
   All 10 char-cursor catalog entries (`x` `X` `D` `C` `s` `r` `~` `e` `f` `F`) point at `charCursorNudge`, so the message can't drift between them.
@@ -295,7 +305,7 @@ This section captures only the **architectural decisions** a contributor needs t
   Cut is one identity-preserving `Op::Move` (`block::move_after`, cross-page, self-subtree rejected); copy duplicates via `paste_block_after` with fresh ids.
 
 - **Path to enable char-cursor ops.**
-  Add a visible Normal-mode caret painted by `<BlockRow />`, then move the 10 blocked handlers to real implementations (separate PR).
+  Add a visible Normal-mode caret in `<BlockRow />`, then move the 10 blocked handlers to real impls (separate PR).
 
 ### `Enter` outside a textarea (Normal mode)
 
@@ -309,23 +319,23 @@ On the desktop, **following a ref is the click on the token** (`onRefClick`); `E
 
 ### `:shortcode:` emoji autocomplete
 
-While the caret sits inside an open `:shortcode` trigger, `BlockRow` shows a floating popup (`EmojiSuggestPopup`, anchored under the textarea — same pattern as `RefSuggestPopup`).
-It reuses `detectEmojiContext` / `applyEmojiSuggestion` from `@outl/shared/autocomplete` and the `searchEmojis` command (`outl_emoji_search` Tauri side, backed by `outl_md::emoji::search`).
-`↑`/`↓` move the highlight,
-`Enter`/`Tab` accept (inserting the canonical `:shortcode:` form — the `.md` stores the literal, never the codepoint),
-`Esc` closes (a second `Esc` commits the block), clicking a row picks it (`onMouseDown` + `preventDefault`).
-The emoji popup beats the ref popup at the same caret (`detectEmojiContext` only triggers on word-initial `:[a-z]`).
-No `outl-shortcuts` binding — pure trigger-detection.
+### `:shortcode:` emoji autocomplete
+
+Inside an open `:shortcode` trigger, `BlockRow` shows `EmojiSuggestPopup`, reusing `detectEmojiContext` / `applyEmojiSuggestion` and the `searchEmojis` command (backed by `outl_md::emoji::search`).
+Accept inserts the canonical `:shortcode:` (the `.md` stores the literal, never the codepoint).
+It beats the ref popup at the same caret (`detectEmojiContext` only fires on word-initial `:[a-z]`).
 
 ### `[[page]]` ref autocomplete
 
-While the caret sits inside an open `[[…]]`, `BlockRow` shows a floating page-suggestion popup (`RefSuggestPopup`, anchored under the textarea).
-It reuses the shared `detectRefContext` / `applySuggestion` helpers (`@outl/shared/autocomplete`) and the `search_pages` command the `Cmd+P` picker already calls — no parallel implementation.
-`↑`/`↓` move the highlight,
-`Enter`/`Tab` accept (inserting the page title, or the ISO slug for journals),
-`Esc` closes the popup (a second `Esc` then commits the block),
-and clicking a row picks it (via `onMouseDown` + `preventDefault` so the textarea's blur-commit doesn't fire first).
-Block refs (`((…))`) are intentionally not suggested yet — separate feature.
+Inside an open `[[…]]`, `BlockRow` shows `RefSuggestPopup`, reusing the shared `detectRefContext` / `applySuggestion` helpers and the `search_pages` command the `Cmd+P` picker already calls.
+Accept inserts the page title (or ISO slug for journals).
+
+### `((block ref))` autocomplete
+
+The `((` counterpart of `[[page]]` (issue #116).
+Inside an open `((…))`, `BlockRow` shows `BlockSuggestPopup`, reusing `detectRefContext` (`kind: "block"`) / `applySuggestion` plus `search_blocks` (`outl_md::WorkspaceIndex::search_block_text`).
+Rows show snippet + slug; the pick inserts the **ref handle** (`((blk-XXXXXX))`), never the text; empty query lists the newest blocks; mobile registers the command for parity, popup unwired.
+`search_blocks` rebuilds the index from disk, so it's debounced ~150ms; caching it in `AppState` is a follow-up.
 
 ### Clicking external `[label](url)` links
 
@@ -345,7 +355,7 @@ The host therefore runs on a **dedicated plugin thread** (`src-tauri/src/plugin_
 
 Design:
 
-- `PluginService::spawn(workspace, storage_root, hlc)` (called once in `lib.rs::setup`, after `open_today`/opener wiring) starts the thread.
+- `spawn_plugin_service(workspace, storage_root, hlc)` (the desktop shim over `outl_tauri_shared::PluginService::spawn`, called once in `lib.rs::setup` after `open_today`/opener wiring) starts the thread.
   It is handed **clones of the same `Arc<Mutex<Option<Workspace>>>` and `Arc<Mutex<Option<PathBuf>>>` every Tauri command locks**, plus the per-device `HlcGenerator`.
   The `Workspace` is `Send`; the Boa `Context` never crosses a thread boundary.
 - The thread owns the `PluginHost`.
@@ -402,15 +412,15 @@ The desktop plays each as an **ephemeral, fully sandboxed `<iframe>` overlay**:
 Played from three call sites: `PluginPalette` (after `pluginRun`), `OutlineView.onCommit`, and the `ToggleTodo` handler (after `pluginSyncHooks`).
 The confetti example (`examples/confetti`, `op-hook` + `ui-render`) rides this: mark a block DONE → op → `sync_hooks` → its `onOp` emits the confetti HTML → `views` → overlay.
 
-Frontend pieces: `src/lib/api.ts` (`pluginList` / `pluginRun` / `pluginSyncHooks` + `PluginRunReply` / `PluginSyncHooksReply`); `lib/plugin-views.ts` + `components/PluginEffectLayer.tsx` (overlay queue).
+Frontend pieces: plugin DTOs + wrappers from `@outl/shared/api` (`lib/api.ts` keeps only `pluginKeybindings`); `lib/plugin-views.ts` + `components/PluginEffectLayer.tsx` (overlay queue).
 The `⧉` button in `ChromeToggleBar` toggles `appState.pluginsOpen`; `components/PluginPalette.tsx` lists + runs commands.
 
 ### Content transformers (inline code-fence rendering)
 
 A plugin can declare a transformer for a code-fence language (`mermaid`, …); matching fences render through it in `CodeFenceView` (`components/BlockRow.tsx`).
-`lib/transformers.ts` keeps `BlockRow` a renderer.
-It owns a `lang → {pluginId, kind}` registry (Solid signal, loaded once per workspace open via `loadTransformers` — `AppShell.onMount` + re-run on `workspace-ready`, since plugins load lazily and a boot fetch can be empty).
-It also owns a `(blockId, body)` result cache (`transformCached`) so the plugin JS re-runs only when the body changes.
+Registry + cache glue: `@outl/shared/plugins/transformer-registry` (shared with mobile); keeps `BlockRow` a renderer.
+It owns a `lang → PluginTransformer` registry (Solid signal, loaded via `loadTransformers` — `AppShell.onMount` + re-run on `workspace-ready`; plugins load lazily, a boot fetch can be empty).
+A `(blockId, body)` result cache (`runTransform`) re-runs plugin JS only when the body changes.
 `kind: "text"` renders as plain whitespace-preserving text (no client-side markdown parse — a transformer wanting formatting emits `rich`).
 `kind: "rich"` renders the HTML in an **inline** `<iframe>` (`RichFenceFrame`), sized via an optional `parent.postMessage({outlHeight})` handshake.
 **Security (never weaken):** that iframe is `sandbox="allow-scripts"` **without** `allow-same-origin`, HTML via `srcdoc` — same isolation as the `ui-render` overlay, only inline + persistent instead of fullscreen + ephemeral.

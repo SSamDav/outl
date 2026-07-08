@@ -17,6 +17,7 @@ path = "src/lib.rs"
 ulid = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+bincode = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 yrs = { workspace = true }
@@ -25,7 +26,9 @@ hex = { workspace = true }
 parking_lot = { workspace = true }
 chrono = { workspace = true }
 fs2 = { workspace = true }
+lru = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
 tempfile = { workspace = true }
+libc = { workspace = true }

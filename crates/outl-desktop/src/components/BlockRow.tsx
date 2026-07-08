@@ -10,7 +10,14 @@ import {
   onCleanup,
 } from "solid-js";
 
-import type { BlockNode, PageMeta, TodoState } from "@outl/shared/api/types";
+import type {
+  BlockNode,
+  PageMeta,
+  PluginCommand,
+  PluginTransformResult,
+  TodoState,
+} from "@outl/shared/api/types";
+import type { BlockHit } from "@outl/shared/api/commands";
 import {
   MarkdownInline,
   QuoteWrap,
@@ -27,25 +34,32 @@ import {
   detectEmojiContext,
   detectRefContext,
   detectSlashContext,
+  refReplacement,
   withCreateNewPersonCandidate,
 } from "@outl/shared/autocomplete";
 import {
   type EmojiHit,
   openRef,
+  pluginList,
+  searchBlocks,
   searchEmojis,
   searchPages,
   searchPersons,
 } from "@outl/shared/api/commands";
 import { HighlightedCode } from "@outl/shared/highlight";
+import { rawTextWithTodo } from "@outl/shared/outline";
 import {
   choosePasteRoute,
   utf16OffsetToCharOffset,
 } from "@outl/shared/paste";
+import {
+  runTransform,
+  transformerFor,
+} from "@outl/shared/plugins/transformer-registry";
 
 import { detectFence } from "@outl/shared/highlight";
 import { appState, setAppState } from "../lib/store";
-import { transformCached, transformerFor } from "../lib/transformers";
-import { pluginList, type PluginCommand, type PluginTransformResult } from "../lib/api";
+import { handlePopupNav } from "../lib/popup-nav";
 import { rankSlashCommands } from "../lib/slash-commands";
 
 export interface BlockCallbacks {
@@ -91,16 +105,6 @@ export interface BlockCallbacks {
   onLinkClick?: (href: string) => void;
 }
 
-/** Wire format the block was stored as — TODO/DONE prefix included.
- *  We hand this verbatim to the textarea on edit so the user can
- *  *erase* the prefix to drop the TODO state and *type* `TODO ` /
- *  `DONE ` to add it. Mirrors how TUI and mobile show the raw text
- *  in their editors. */
-function rawTextWithTodo(block: BlockNode): string {
-  if (!block.todo) return block.text;
-  return `${block.todo} ${block.text}`;
-}
-
 /**
  * One outline block. Renders read-only by default; flips to a
  * textarea editor when `editing === true`. Mouse and keyboard
@@ -142,6 +146,16 @@ export function BlockRow(props: {
   // popup is active at a time.
   const [emojiSuggestions, setEmojiSuggestions] = createSignal<EmojiHit[]>([]);
   const [emojiIndex, setEmojiIndex] = createSignal(0);
+  // ── `((block ref))` autocomplete ─────────────────────────────────
+  // While the caret sits inside an open `((…))`, we offer a popup of
+  // matching blocks. Same detection (`detectRefContext` → `kind:
+  // "block"`) and insertion (`applySuggestion` wraps the pick in
+  // `((…))`) as the page-ref path; block lookup goes through the
+  // `search_blocks` command. Kept in its own signal because a block
+  // hit's cell shape (text snippet + page) differs from a page's
+  // (icon + title), and only one popup is ever open at a time.
+  const [blockSuggestions, setBlockSuggestions] = createSignal<BlockHit[]>([]);
+  const [blockIndex, setBlockIndex] = createSignal(0);
   // ── `/command` inline slash menu ─────────────────────────────────
   // Block-initial `/` opens a filterable list of plugin commands —
   // the desktop's inline equivalent of the TUI's `/` slash overlay
@@ -163,15 +177,17 @@ export function BlockRow(props: {
   // `lastQuery` guard). `null` means "not in a ref right now".
   let lastQuery: string | null = null;
   let searchToken = 0;
+  // Debounce timer for `searchBlocks` only. Unlike page / person / emoji
+  // search (in-memory or a static catalog), the block search rebuilds the
+  // whole `WorkspaceIndex` from disk per call, so firing it on every
+  // keystroke inside `((…))` janks on large workspaces. Waiting for a
+  // short pause keeps the rebuild off the hot path.
+  const BLOCK_SEARCH_DEBOUNCE_MS = 150;
+  let blockSearchTimer: ReturnType<typeof setTimeout> | undefined;
 
   let textareaRef: HTMLTextAreaElement | undefined;
 
-  /** The page name we splice into `[[…]]`. Journals are anchored on
-   *  their ISO slug (`2026-06-08`), regular pages on their title —
-   *  same choice mobile's native chip strip makes. */
-  function refReplacement(page: PageMeta): string {
-    return page.kind === "journal" ? page.slug : page.title;
-  }
+  onCleanup(() => clearTimeout(blockSearchTimer));
 
   function closeSuggest() {
     lastQuery = null;
@@ -179,6 +195,8 @@ export function BlockRow(props: {
     setSuggestIndex(0);
     if (emojiSuggestions().length > 0) setEmojiSuggestions([]);
     setEmojiIndex(0);
+    if (blockSuggestions().length > 0) setBlockSuggestions([]);
+    setBlockIndex(0);
     if (slashCommands().length > 0) setSlashCommands([]);
     setSlashIndex(0);
   }
@@ -258,8 +276,41 @@ export function BlockRow(props: {
       return;
     }
     const ctx = detectRefContext(ta.value, cursor);
-    // `page` → fuzzy over every page; `mention` → fuzzy over persons
-    // only. Block-ref autocompletion is intentionally skipped here.
+    // `block` → fuzzy over every block's text, keyed on the `((…))`
+    // trigger. Handled on its own path because the hit shape (handle +
+    // snippet) and the accept (insert the handle, not the text) differ
+    // from the page/mention path below.
+    if (ctx && ctx.kind === "block") {
+      const key = `block:${ctx.query}`;
+      if (key === lastQuery) return;
+      lastQuery = key;
+      const token = ++searchToken;
+      if (suggestions().length > 0) setSuggestions([]);
+      if (emojiSuggestions().length > 0) setEmojiSuggestions([]);
+      const query = ctx.query;
+      // Debounced: the backend rebuilds the workspace index from disk, so
+      // only fire after the user pauses typing. `searchToken` still guards
+      // staleness if a newer keystroke supersedes this one mid-flight.
+      clearTimeout(blockSearchTimer);
+      blockSearchTimer = setTimeout(() => {
+        if (token !== searchToken) return;
+        void searchBlocks(query)
+          .then((hits) => {
+            if (token !== searchToken) return;
+            // Stale-caret guard: the caret may have left the `((…)` while
+            // the search was in flight.
+            const cur = textareaRef
+              ? detectRefContext(textareaRef.value, textareaRef.selectionStart ?? 0)
+              : null;
+            if (!cur || cur.kind !== "block" || cur.query !== query) return;
+            setBlockSuggestions(hits);
+            setBlockIndex(0);
+          })
+          .catch(() => closeSuggest());
+      }, BLOCK_SEARCH_DEBOUNCE_MS);
+      return;
+    }
+    // `page` → fuzzy over every page; `mention` → fuzzy over persons.
     if (!ctx || (ctx.kind !== "page" && ctx.kind !== "mention")) {
       return closeSuggest();
     }
@@ -305,10 +356,12 @@ export function BlockRow(props: {
     if (!ctx || (ctx.kind !== "page" && ctx.kind !== "mention")) {
       return closeSuggest();
     }
-    // For mentions the page identity carries no `@` — pass the title
-    // verbatim; `applySuggestion` prepends `@` on the link side.
-    const replacement =
-      ctx.kind === "mention" ? page.title : refReplacement(page);
+    // For mentions the page identity carries no `@` — the shared
+    // `refReplacement` passes the title verbatim; `applySuggestion`
+    // prepends `@` on the link side.
+    const replacement = refReplacement(page, {
+      mention: ctx.kind === "mention",
+    });
     // Mention sugar: materialise the person page in the backend
     // (fire-and-forget) so the inserted `[[@title]]` link resolves
     // on subsequent loads — `open_or_create_by_ref` strips the `@`
@@ -326,6 +379,23 @@ export function BlockRow(props: {
       });
     }
     const completion = applySuggestion(ta.value, ctx, replacement);
+    setDraft(completion.value);
+    ta.value = completion.value;
+    ta.setSelectionRange(completion.caret, completion.caret);
+    closeSuggest();
+    ta.focus();
+  }
+
+  /** Accept `hit`: replace the open `((…))` span with `((<handle>))`.
+   *  The replacement is the block's **ref handle**, never its display
+   *  text — block refs resolve by handle. `applySuggestion` wraps a
+   *  `block` context in `((…))`, so we pass the bare handle. */
+  function acceptBlockSuggestion(hit: BlockHit) {
+    const ta = textareaRef;
+    if (!ta) return;
+    const ctx = detectRefContext(ta.value, ta.selectionStart ?? 0);
+    if (!ctx || ctx.kind !== "block") return closeSuggest();
+    const completion = applySuggestion(ta.value, ctx, hit.handle);
     setDraft(completion.value);
     ta.value = completion.value;
     ta.setSelectionRange(completion.caret, completion.caret);
@@ -472,123 +542,67 @@ export function BlockRow(props: {
       await props.cb.onPastePlain(props.block.id, caretChars, clip);
       return;
     }
-    // Slash menu owns the arrows / Enter / Tab / Esc while it's open.
-    // It never co-exists with the emoji / ref popups (block-initial `/`
-    // vs. `:` / `[[`), so checking it first is safe.
-    const slash = slashCommands();
-    if (slash.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        e.stopPropagation();
-        setSlashIndex((i) => (i + 1) % slash.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        e.stopPropagation();
-        setSlashIndex((i) => (i - 1 + slash.length) % slash.length);
-        return;
-      }
-      if (
-        (e.key === "Enter" || e.key === "Tab") &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.shiftKey &&
-        !e.altKey
-      ) {
-        e.preventDefault();
-        e.stopPropagation();
-        acceptSlashCommand(slash[slashIndex()]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        closeSuggest();
-        return;
-      }
-    }
-    // Emoji popup takes precedence over the ref popup (they never
-    // co-exist, but checking first keeps the branching cheap).
-    const emoji = emojiSuggestions();
-    if (emoji.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        e.stopPropagation();
-        setEmojiIndex((i) => (i + 1) % emoji.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        e.stopPropagation();
-        setEmojiIndex((i) => (i - 1 + emoji.length) % emoji.length);
-        return;
-      }
-      if (
-        (e.key === "Enter" || e.key === "Tab") &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.shiftKey &&
-        !e.altKey
-      ) {
-        e.preventDefault();
-        e.stopPropagation();
-        acceptEmojiSuggestion(emoji[emojiIndex()]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        closeSuggest();
-        return;
-      }
-    }
-    // Ref-suggester navigation takes precedence while the popup is up:
-    // arrows move the highlight, Enter/Tab accept, Esc closes the popup
-    // (a *second* Esc then commits the block). stopPropagation keeps the
-    // global shortcut dispatcher from also acting on these keys.
-    const items = suggestions();
-    if (items.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        e.stopPropagation();
-        setSuggestIndex((i) => (i + 1) % items.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        e.stopPropagation();
-        setSuggestIndex((i) => (i - 1 + items.length) % items.length);
-        return;
-      }
-      if (
-        e.key === "Enter" &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.shiftKey &&
-        !e.altKey
-      ) {
-        e.preventDefault();
-        e.stopPropagation();
-        acceptSuggestion(items[suggestIndex()]);
-        return;
-      }
-      if (e.key === "Tab") {
-        e.preventDefault();
-        e.stopPropagation();
-        acceptSuggestion(items[suggestIndex()]);
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        closeSuggest();
-        return;
-      }
+    // The four inline autocomplete popups share one keyboard contract
+    // (arrows cycle, Enter/Tab accept, Esc close) via `handlePopupNav`.
+    // They never co-exist — one trigger is active at a time — so the
+    // first non-empty one consumes the key. Checking slash first is safe
+    // (block-initial `/` vs. `:` / `((` / `[[`).
+    if (
+      handlePopupNav(e, {
+        items: slashCommands(),
+        index: slashIndex(),
+        setIndex: setSlashIndex,
+        onAccept: acceptSlashCommand,
+        onClose: closeSuggest,
+      }) ||
+      handlePopupNav(e, {
+        items: emojiSuggestions(),
+        index: emojiIndex(),
+        setIndex: setEmojiIndex,
+        onAccept: acceptEmojiSuggestion,
+        onClose: closeSuggest,
+      }) ||
+      handlePopupNav(e, {
+        items: blockSuggestions(),
+        index: blockIndex(),
+        setIndex: setBlockIndex,
+        onAccept: acceptBlockSuggestion,
+        onClose: closeSuggest,
+      }) ||
+      handlePopupNav(e, {
+        items: suggestions(),
+        index: suggestIndex(),
+        setIndex: setSuggestIndex,
+        onAccept: acceptSuggestion,
+        onClose: closeSuggest,
+      })
+    ) {
+      return;
     }
     if (e.key === "Escape") {
       e.preventDefault();
       await commit();
+      return;
+    }
+    // Plain `Enter` (no modifiers) → commit + create a sibling below.
+    // TUI parity: `outl-tui/src/input/mod.rs` — "Plain Enter commits the
+    // block and creates a sibling below." `Shift+Enter` (no Cmd/Ctrl) is
+    // the soft break: it falls through to the textarea default and inserts
+    // a literal `\n` for a multi-line block (issue #119).
+    // No `stopImmediatePropagation` here (unlike `Cmd/Ctrl+Shift+Enter`
+    // below): with a textarea focused the dispatcher is in Insert mode,
+    // and the catalog has no Insert binding for a bare `Enter` (its only
+    // `Enter` row is Normal → `OpenRefUnderCursor`), so the window
+    // dispatcher no-ops — there is no double-fire to guard against.
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey
+    ) {
+      e.preventDefault();
+      await props.cb.onEnter(props.block.id, draft());
       return;
     }
     // `Cmd/Ctrl+Shift+Enter` is caret-position aware, handled here (not
@@ -602,8 +616,7 @@ export function BlockRow(props: {
     // shortcut dispatcher from also firing the catalog's
     // commit-and-continue on the same keystroke (the old "Cmd+Shift+Enter
     // breaks the line" double-fire bug). `Cmd+Enter` / `Cmd+T` are still
-    // owned by the catalog; plain `Enter` still passes through to the
-    // textarea so it inserts a real `\n` (multi-line blocks).
+    // owned by the catalog.
     if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -961,6 +974,12 @@ export function BlockRow(props: {
                         onHover={setSuggestIndex}
                         onPick={acceptSuggestion}
                       />
+                      <BlockSuggestPopup
+                        items={blockSuggestions()}
+                        activeIndex={blockIndex()}
+                        onHover={setBlockIndex}
+                        onPick={acceptBlockSuggestion}
+                      />
                       <EmojiSuggestPopup
                         items={emojiSuggestions()}
                         activeIndex={emojiIndex()}
@@ -1055,6 +1074,57 @@ function RefSuggestPopup(props: {
                 </span>
                 <span class="truncate">
                   {page.kind === "journal" ? page.slug : page.title}
+                </span>
+              </button>
+            </li>
+          )}
+        </For>
+      </ul>
+    </Show>
+  );
+}
+
+/**
+ * Floating block-suggestion list shown while the caret is inside an
+ * open `((…))`. Anchored just below the block's textarea — same pattern
+ * as `RefSuggestPopup`. Each row shows the block's text snippet with its
+ * hosting page slug dimmed on the right, so the user picks by content
+ * (the `blk-XXXXXX` handle it inserts is never shown — it's an internal
+ * id, not something the user reasons about).
+ */
+function BlockSuggestPopup(props: {
+  items: BlockHit[];
+  activeIndex: number;
+  onHover: (i: number) => void;
+  onPick: (hit: BlockHit) => void;
+}) {
+  return (
+    <Show when={props.items.length > 0}>
+      <ul
+        class="absolute top-full left-0 z-30 mt-1 max-h-56 w-96 overflow-y-auto rounded-md border border-(--color-outl-border) bg-(--color-outl-bg-elev) py-1 text-[13px] shadow-lg"
+        role="listbox"
+      >
+        <For each={props.items}>
+          {(hit, i) => (
+            <li role="option" aria-selected={i() === props.activeIndex}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  props.onPick(hit);
+                }}
+                onMouseEnter={() => props.onHover(i())}
+                class={`flex w-full items-center gap-2 px-2 py-1 text-left ${
+                  i() === props.activeIndex
+                    ? "bg-(--color-outl-accent) text-(--color-outl-bg)"
+                    : "hover:bg-(--color-outl-bg)/50"
+                }`}
+              >
+                <span class="min-w-0 flex-1 truncate">
+                  {hit.text || "(empty block)"}
+                </span>
+                <span class="shrink-0 truncate text-[11px] opacity-60">
+                  {hit.source_slug}
                 </span>
               </button>
             </li>
@@ -1184,7 +1254,8 @@ function SlashCommandPopup(props: {
  *   affordance still drops into the raw fence editor.
  *
  * The transform runs the plugin's JS, so it is cached by `(blockId, body)`
- * (`transformCached`) and only re-runs when the body changes.
+ * (`runTransform`, `@outl/shared/plugins/transformer-registry`) and only
+ * re-runs when the body changes.
  */
 function CodeFenceView(props: {
   blockId: string;
@@ -1216,7 +1287,7 @@ function CodeFenceView(props: {
       const m = match();
       return m ? { m, body: props.body } : undefined;
     },
-    (k) => transformCached(props.blockId, k.m, props.language, k.body),
+    (k) => runTransform(props.blockId, k.m, k.body),
   );
 
   // Whether to show transformed output: a transformer matched AND it
