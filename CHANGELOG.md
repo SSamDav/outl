@@ -5,6 +5,8 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-07-11
+
 ### Added
 
 - **Multi-block batch operations, on the TUI and desktop (issue #23).**
