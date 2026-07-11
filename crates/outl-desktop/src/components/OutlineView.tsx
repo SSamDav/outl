@@ -184,6 +184,27 @@ export function OutlineView() {
     }
   }
 
+  /**
+   * Persist the in-flight textarea draft into the workspace before a
+   * paste splices at `caret`. The caret is measured against the draft
+   * (`textarea.value`), but the backend splices against
+   * `host_text_for_caret` — if the user typed since the last commit,
+   * the two diverge and the paste lands at the wrong offset. Mobile
+   * does the same in `Journal.handlePasteMarkdown`. No-op when the
+   * block isn't the one being edited (a paste from a click without an
+   * open editor). Edit mode is left untouched (`editBlock` doesn't flip
+   * `editingBlockId`), so the user keeps typing after a plain paste.
+   */
+  async function flushDraftBeforePaste(
+    pageId: string,
+    id: string,
+    hostText: string,
+  ) {
+    if (editingId() !== id) return;
+    const committed = await handleError(editBlock(pageId, id, hostText));
+    if (committed) applyView(committed);
+  }
+
   async function handleRefClick(target: string) {
     const view = await handleError(openRef(target));
     if (view) applyView(view);
@@ -326,15 +347,17 @@ export function OutlineView() {
       const view = await handleError(setBlockCollapsed(pageId, id, collapsed));
       if (view) applyView(view);
     },
-    onPasteMarkdown: async (id, caret, text) => {
+    onPasteMarkdown: async (id, caret, text, hostText) => {
       const pageId = appState.page?.id;
       if (!pageId) return;
+      await flushDraftBeforePaste(pageId, id, hostText);
       const view = await handleError(pasteMarkdown(pageId, id, caret, text));
       if (view) applyView(view);
     },
-    onPastePlain: async (id, caret, text) => {
+    onPastePlain: async (id, caret, text, hostText) => {
       const pageId = appState.page?.id;
       if (!pageId) return;
+      await flushDraftBeforePaste(pageId, id, hostText);
       const view = await handleError(pastePlain(pageId, id, caret, text));
       if (view) applyView(view);
     },

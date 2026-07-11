@@ -59,6 +59,7 @@ import {
 } from "@outl/shared/plugins/transformer-registry";
 
 import { detectFence } from "@outl/shared/highlight";
+import { readText as readClipboardText } from "@tauri-apps/plugin-clipboard-manager";
 import { appState, setAppState } from "../lib/store";
 import { handlePopupNav } from "../lib/popup-nav";
 import {
@@ -89,11 +90,24 @@ export interface BlockCallbacks {
   /** Chevron click — fold / unfold. */
   onToggleCollapsed: (id: string, collapsed: boolean) => Promise<void>;
   /** External-clipboard paste with formatting (Cmd+V) — structured
-   *  payload is converted to blocks. */
-  onPasteMarkdown: (id: string, caret: number, text: string) => Promise<void>;
+   *  payload is converted to blocks. `hostText` is the in-flight
+   *  textarea value so the parent can flush the draft into the
+   *  workspace before splicing (else the caret is measured on the draft
+   *  but applied to stale backend text). */
+  onPasteMarkdown: (
+    id: string,
+    caret: number,
+    text: string,
+    hostText: string,
+  ) => Promise<void>;
   /** Paste without formatting (Cmd+Shift+V) — raw text spliced at the
-   *  caret, no conversion. */
-  onPastePlain: (id: string, caret: number, text: string) => Promise<void>;
+   *  caret, no conversion. `hostText` is flushed like `onPasteMarkdown`. */
+  onPastePlain: (
+    id: string,
+    caret: number,
+    text: string,
+    hostText: string,
+  ) => Promise<void>;
   /** Run a fenced code block through `outl-exec`. */
   onRunCodeBlock: (id: string) => Promise<void>;
   /** Run a plugin command picked from the inline `/` slash menu. The
@@ -544,13 +558,18 @@ export function BlockRow(props: {
       if (!ta) return;
       let clip = "";
       try {
-        clip = await navigator.clipboard.readText();
+        // Read via the Tauri clipboard plugin, NOT
+        // `navigator.clipboard.readText()`: the macOS WKWebview pops a
+        // native "Paste" permission button for a programmatic web-API
+        // read (outside a real paste gesture), which showed a "paste"
+        // prompt and inserted nothing. The plugin reads on the backend.
+        clip = await readClipboardText();
       } catch {
-        return; // clipboard read denied — nothing to paste
+        return; // clipboard read denied / empty — nothing to paste
       }
       if (!clip) return;
       const caretChars = utf16OffsetToCharOffset(ta.value, ta.selectionStart ?? 0);
-      await props.cb.onPastePlain(props.block.id, caretChars, clip);
+      await props.cb.onPastePlain(props.block.id, caretChars, clip, ta.value);
       return;
     }
     // The four inline autocomplete popups share one keyboard contract
@@ -698,6 +717,14 @@ export function BlockRow(props: {
   async function handlePaste(e: ClipboardEvent) {
     const ta = textareaRef;
     if (!ta) return;
+    // Inside a fenced code block the whole block is one raw ```lang…```
+    // string. Converting a multi-line / outline clipboard "with
+    // formatting" would split the fence into sibling blocks and strand
+    // the closing ``` on its own line (the "paste jumps to the last
+    // line" bug). Let the browser splice the text in literally (newlines
+    // preserved), exactly like typing it — `onInput` keeps the draft in
+    // sync. Cmd+Shift+V (paste without formatting) already splices raw.
+    if (detectFence(ta.value)) return;
     // "Paste with formatting" (Cmd+V). `choosePasteRoute` (shared with
     // mobile) decides between: rich (text/html converted to markdown so a
     // Slack/Docs/Notion paste keeps its **bold** + lists), structured
@@ -714,7 +741,12 @@ export function BlockRow(props: {
       ta.value,
       ta.selectionStart ?? 0,
     );
-    await props.cb.onPasteMarkdown(props.block.id, caretChars, decision.text);
+    await props.cb.onPasteMarkdown(
+      props.block.id,
+      caretChars,
+      decision.text,
+      ta.value,
+    );
   }
 
   /** TODO/DONE state to render the bullet by. Edit mode is the

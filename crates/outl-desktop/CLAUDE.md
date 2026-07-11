@@ -221,9 +221,12 @@ Implementation lives in `lib/markdown-wrap.ts`: each handler reads `document.act
 
 ### Paste (with and without formatting)
 
-User-facing behaviour lives in [`docs/paste.md`](../../docs/paste.md).
-`Cmd/Ctrl+V` (with formatting, `paste_markdown_at`) reads `text/html`, converts a rich clipboard via `htmlToOutlMarkdown` (`@outl/shared/paste`, Turndown), and routes to the backend on added formatting or `looksLikeOutline` / `hasMultipleParagraphs`.
-`Cmd/Ctrl+Shift+V` (without formatting, `paste_plain_at` → `paste_plain`) inserts raw text as one block via `onPastePlain`.
+User-facing behaviour + routing lives in [`docs/paste.md`](../../docs/paste.md).
+Three guards (mobile mirrors them):
+
+- Code-fence host bails `Cmd/Ctrl+V` to the native splice (`detectFence` early-return), keeping it literal.
+- `Cmd/Ctrl+Shift+V` reads via `tauri-plugin-clipboard-manager` (`clipboard-manager:allow-read-text`), dodging the macOS webview "Paste" gate.
+- Both pass `textarea.value` so `flushDraftBeforePaste` commits the draft first.
 
 `create_block`: stale `after_id` (`NotInTree`) → append at page end (fixes `o`-key crash after peer reload).
 
