@@ -68,7 +68,7 @@ pub fn repair_doubled_journal_titles(
 /// (k == 1, a normal pre-migration journal title) and an empty text are
 /// left alone so a clean workspace stays op-free.
 fn is_repeated_slug(text: &str, slug: &str) -> bool {
-    if slug.is_empty() || text.len() <= slug.len() || text.len() % slug.len() != 0 {
+    if slug.is_empty() || text.len() <= slug.len() || !text.len().is_multiple_of(slug.len()) {
         return false;
     }
     let k = text.len() / slug.len();
