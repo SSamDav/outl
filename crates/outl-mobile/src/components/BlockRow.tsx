@@ -544,18 +544,19 @@ function EditableTextarea(props: {
       class="block w-full resize-none border-0 bg-transparent p-0 text-[17px] leading-snug outline-none"
       rows="1"
       value={props.value}
-      // iOS Smart Punctuation silently rewrites `--` → `–`,
-      // `...` → `…`, `"foo"` → `“foo”`. Disastrous for a markdown
-      // outliner where code snippets, CLI commands and any
-      // syntax-sensitive text gets corrupted *after* the user
-      // typed. We turn the lot off here. `autocomplete="off"` is
-      // belt-and-braces — WKWebView mostly ignores it on textareas
-      // but it does suppress the proactive suggestion bar in some
-      // iOS versions.
-      autocorrect="off"
+      // Keep iOS QuickType (word prediction + autocorrect) ON — it's
+      // the suggestion bar the user actually types with. We used to
+      // set `autocorrect="off"` (which also hides that bar) purely to
+      // stop iOS Smart Punctuation from silently rewriting `--` → `–`,
+      // `...` → `…`, `"foo"` → `“foo”` — disastrous for a markdown
+      // outliner where code and CLI snippets are syntax-sensitive.
+      // That substitution is now killed natively and precisely in
+      // `OutlSwizzle` (smartQuotes/smartDashes/smartInsertDelete forced
+      // to `.no` on the private WKContentView), so we get the
+      // prediction bar back without the punctuation corruption.
+      // `autocapitalize` stays off so typing `const` isn't title-cased
+      // to `Const`.
       autocapitalize="off"
-      autocomplete="off"
-      spellcheck={false}
       onKeyDown={(e) => {
         // Backspace inside an empty `[[]]` or `(())` deletes the
         // whole pair so the user doesn't have to mash four times.

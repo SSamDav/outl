@@ -72,8 +72,50 @@ public final class OutlSwizzle: NSObject {
         method_setImplementation(method, imp)
         NSLog("[outl] installed native toolbar (with embedded suggester)")
 
+        neutralizeSmartPunctuation(on: cls)
         disableInteractiveDismiss()
         bindWebView()
+    }
+
+    // MARK: - Neutralize iOS Smart Punctuation
+
+    /// iOS "Smart Punctuation" rewrites `--` → `–`, `...` → `…`, and
+    /// straight quotes → curly *after* the user types — corrupting a
+    /// markdown outliner's code and CLI snippets. The HTML editor used
+    /// to suppress it with `autocorrect="off"`, but that also hid the
+    /// QuickType prediction bar the user types with.
+    ///
+    /// The precise fix: leave autocorrect/QuickType on in the HTML
+    /// (`BlockRow.tsx` no longer sets `autocorrect`/`spellcheck`) and
+    /// force just the three smart-punctuation traits to `.no` on the
+    /// private `WKContentView`. These are `UITextInputTraits` getters;
+    /// UIKit reads them off the first responder every time it resolves
+    /// the keyboard's behaviour, so replacing each IMP with a constant
+    /// `.no` is enough — no per-focus re-application needed.
+    private static func neutralizeSmartPunctuation(on cls: AnyClass) {
+        forceTrait(cls, "smartQuotesType", UITextSmartQuotesType.no.rawValue)
+        forceTrait(cls, "smartDashesType", UITextSmartDashesType.no.rawValue)
+        forceTrait(cls, "smartInsertDeleteType", UITextSmartInsertDeleteType.no.rawValue)
+        NSLog("[outl] neutralized smart punctuation (kept QuickType)")
+    }
+
+    /// Replace a `UITextInputTraits` enum getter's IMP with one that
+    /// returns a constant value. Best-effort: if the getter isn't found
+    /// (WebKit internals change across iOS versions) we log and move on
+    /// rather than crash — the worst case is smart punctuation stays on,
+    /// not a broken keyboard.
+    private static func forceTrait(_ cls: AnyClass, _ selectorName: String, _ value: Int) {
+        let sel = NSSelectorFromString(selectorName)
+        guard let method = class_getInstanceMethod(cls, sel) else {
+            NSLog("[outl] no \(selectorName) on WKContentView — smart punctuation left as-is")
+            return
+        }
+        // Same `@convention(block)` ABI requirement as the
+        // inputAccessoryView swizzle above; the getter returns an
+        // `NSInteger`-backed enum, so a constant `Int` block is a valid
+        // IMP.
+        let block: @convention(block) (AnyObject) -> Int = { _ in value }
+        method_setImplementation(method, imp_implementationWithBlock(block))
     }
 
     // MARK: - Disable interactive keyboard dismiss
